@@ -6,36 +6,17 @@ services:
     volumes:
       - ../..:/workspaces:cached
     command: sleep infinity
-    network_mode: service:db
-    depends_on:
-      - db
 
-  db:
-    image: mariadb:10.11
-    restart: unless-stopped
-    volumes:
-      - mariadb-data:/var/lib/mysql
-    env_file:
-      - db.env
-    ports:
-      - "3306:3306"
-
-  mailpit:
-    image: axllent/mailpit:latest
-    ports:
-      - "8025:8025"
-      - "1025:1025"
+  redis:
+    image: docker.io/bitnami/redis:7.4
     environment:
-      - MP_SMTP_AUTH_ACCEPT_ANY=1
-      - MP_SMTP_AUTH_ALLOW_INSECURE=1
-
-  adminer:
-    image: adminer:latest
-    restart: unless-stopped
+      - ALLOW_EMPTY_PASSWORD=yes
+      - REDIS_DISABLE_COMMANDS=FLUSHDB,FLUSHALL
     ports:
-      - "8081:8080"
-    depends_on:
-      - db
+      - '6380:6379'
+    volumes:
+      - 'redis_data:/bitnami/redis/data'
 
 volumes:
-  mariadb-data:
+  redis_data:
+    driver: local

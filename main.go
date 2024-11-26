@@ -38,14 +38,17 @@ var CrawlerModule = fx.Options(
 // Application configuration
 type Config struct {
 	StartURL string
+	MaxDepth int
 }
 
 func NewConfig() *Config {
 	startURL := flag.String("url", "https://go.dev", "The URL to start crawling from")
+	maxDepth := flag.Int("depth", 3, "Maximum crawl depth")
 	flag.Parse()
 
 	return &Config{
 		StartURL: *startURL,
+		MaxDepth: *maxDepth,
 	}
 }
 
@@ -77,9 +80,9 @@ func (app *Application) Run(ctx context.Context) error {
 	return nil
 }
 
-func NewCrawlerConfig() *crawlers.Config {
+func NewCrawlerConfig(config *Config) *crawlers.Config {
 	return &crawlers.Config{
-		MaxDepth:    3,
+		MaxDepth:    config.MaxDepth,
 		Parallelism: 2,
 		RandomDelay: 1 * time.Second,
 	}

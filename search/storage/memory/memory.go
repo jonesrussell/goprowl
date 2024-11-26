@@ -1,7 +1,11 @@
 package memory
 
 import (
+	"context"
 	"sync"
+	"time"
+
+	"github.com/jonesrussell/goprowl/search/storage"
 )
 
 // MemoryStorage implements StorageAdapter using in-memory map
@@ -18,12 +22,51 @@ func New() *MemoryStorage {
 }
 
 // Store saves a document to memory
-func (m *MemoryStorage) Store(id string, content map[string]interface{}) error {
+func (m *MemoryStorage) Store(ctx context.Context, doc *storage.Document) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.store[id] = content
+	content := map[string]interface{}{
+		"url":        doc.URL,
+		"title":      doc.Title,
+		"content":    doc.Content,
+		"type":       doc.Type,
+		"created_at": doc.CreatedAt,
+		"metadata":   doc.Metadata,
+	}
+
+	m.store[doc.URL] = content
 	return nil
+}
+
+// BatchStore stores multiple documents to storage
+func (m *MemoryStorage) BatchStore(ctx context.Context, docs []*storage.Document) error {
+	for _, doc := range docs {
+		if err := m.Store(ctx, doc); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GetAll retrieves all documents from storage
+func (m *MemoryStorage) GetAll(ctx context.Context) ([]*storage.Document, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	docs := make([]*storage.Document, 0, len(m.store))
+	for _, content := range m.store {
+		doc := &storage.Document{
+			URL:       content["url"].(string),
+			Title:     content["title"].(string),
+			Content:   content["content"].(string),
+			Type:      content["type"].(string),
+			CreatedAt: content["created_at"].(time.Time),
+			Metadata:  content["metadata"].(map[string]interface{}),
+		}
+		docs = append(docs, doc)
+	}
+	return docs, nil
 }
 
 // Get retrieves a document from memory

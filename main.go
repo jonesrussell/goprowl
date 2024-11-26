@@ -18,7 +18,6 @@ import (
 // Module options for different components
 var StorageModule = fx.Options(
 	fx.Provide(
-		memory.New,
 		fx.Annotate(
 			memory.New,
 			fx.As(new(storage.StorageAdapter)),

@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/jonesrussell/goprowl/search/crawlers"
@@ -86,6 +88,27 @@ func NewCrawlerConfig(config *Config) *crawlers.Config {
 		Parallelism: 2,
 		RandomDelay: 1 * time.Second,
 	}
+}
+
+func (app *Application) Search(queryString string) error {
+	query := engine.NewBasicQuery(strings.Fields(queryString))
+
+	results, err := app.engine.Search(query)
+	if err != nil {
+		return fmt.Errorf("search failed: %w", err)
+	}
+
+	total := results.Metadata["total"].(int64)
+	fmt.Printf("Found %d results:\n\n", total)
+	for _, hit := range results.Hits {
+		content := hit.Content()
+		fmt.Printf("Title: %s\n", content["title"])
+		fmt.Printf("URL: %s\n", content["url"])
+		fmt.Printf("Type: %s\n", hit.Type())
+		fmt.Println("---")
+	}
+
+	return nil
 }
 
 func main() {

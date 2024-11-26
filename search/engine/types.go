@@ -1,6 +1,9 @@
 package engine
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // Permission represents access control for documents
 type Permission struct {
@@ -37,7 +40,6 @@ type Facet struct {
 
 // SearchResult represents search results
 type SearchResult struct {
-	Total    int64
 	Hits     []Document
 	Facets   map[string][]Facet
 	Metadata map[string]interface{}
@@ -62,16 +64,28 @@ type Query interface {
 
 // SearchEngine interface as defined in the spec
 type SearchEngine interface {
-	// Indexing
+	// Indexing operations
 	Index(doc Document) error
 	BatchIndex(docs []Document) error
 	Delete(id string) error
 
-	// Searching
+	// Searching operations
 	Search(query Query) (*SearchResult, error)
+	SearchWithOptions(ctx context.Context, opts SearchOptions) ([]SearchResult, error)
+	GetTotalResults(ctx context.Context, query string) (int, error)
 	Suggest(prefix string) []string
 
-	// Management
+	// Management operations
 	Reindex() error
 	Stats() *SearchStats
+}
+
+// SearchOptions represents options for searching
+type SearchOptions struct {
+	Query     string
+	FromDate  *time.Time
+	ToDate    *time.Time
+	TitleOnly bool
+	Limit     int
+	Offset    int
 }

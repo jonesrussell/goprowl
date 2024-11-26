@@ -69,6 +69,30 @@ func New(
 		log.Printf("Got response %d from %v", r.StatusCode, r.Request.URL)
 	})
 
+	// Add handlers for links and content
+	c.OnHTML("a[href]", func(e *colly.HTMLElement) {
+		link := e.Attr("href")
+		e.Request.Visit(link)
+	})
+
+	c.OnHTML("html", func(e *colly.HTMLElement) {
+		// Create a document from the page
+		title := e.ChildText("title")
+		content := e.Text
+		url := e.Request.URL.String()
+
+		doc := NewDocument(url, title, content)
+
+		// Index the document
+		if err := engine.Index(doc); err != nil {
+			log.Printf("Error indexing document: %v", err)
+		}
+	})
+
+	c.OnError(func(r *colly.Response, err error) {
+		log.Printf("Error visiting %v: %v", r.Request.URL, err)
+	})
+
 	return &CollyCrawler{
 		collector: c,
 		engine:    engine,
@@ -76,64 +100,37 @@ func New(
 	}
 }
 
-func (c *CollyCrawler) Crawl(ctx context.Context, url string) error {
-	log.Printf("Starting crawl of: %s", url)
+func (c *CollyCrawler) Crawl(ctx context.Context, urlStr string) error {
+	log.Printf("Starting crawl of: %s", urlStr)
+
+	// Validate URL
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+
+	// Ensure URL has scheme
+	if parsedURL.Scheme == "" {
+		parsedURL.Scheme = "https"
+	}
+
+	// Get the normalized URL string
+	normalizedURL := parsedURL.String()
 
 	// Parse the starting URL to get the domain
-	startDomain, err := extractDomain(url)
+	startDomain, err := extractDomain(normalizedURL)
 	if err != nil {
-		return fmt.Errorf("invalid start URL: %v", err)
+		return fmt.Errorf("invalid start URL: %w", err)
 	}
 	log.Printf("Base domain: %s", startDomain)
 
-	// Allow external domains if configured
+	// Set allowed domains
 	if c.config.FollowExternal {
-		c.collector.AllowedDomains = nil // Allow all domains
-		log.Printf("Following external domains enabled")
+		c.collector.AllowedDomains = nil
 	} else {
 		c.collector.AllowedDomains = []string{startDomain}
 		log.Printf("Restricting to domain: %s", startDomain)
 	}
-
-	// Set up callbacks
-	c.collector.OnHTML("a[href]", func(e *colly.HTMLElement) {
-		link := e.Attr("href")
-		// Only follow links that are absolute or can be made absolute
-		absoluteURL := e.Request.AbsoluteURL(link)
-		if absoluteURL != "" {
-			log.Printf("Following link: %s", absoluteURL)
-			err := e.Request.Visit(absoluteURL)
-			if err != nil {
-				log.Printf("Error visiting %s: %v", absoluteURL, err)
-			}
-		}
-	})
-
-	c.collector.OnHTML("html", func(e *colly.HTMLElement) {
-		// Extract title from meta tags or title tag
-		title := e.ChildText("title")
-		if title == "" {
-			title = e.ChildAttr("meta[property='og:title']", "content")
-		}
-		if title == "" {
-			title = e.Request.URL.String() // Use URL as fallback title
-		}
-
-		// Extract content from body
-		content := e.ChildText("body")
-
-		// Create document with both title and content
-		doc := NewDocument(e.Request.URL.String(), title, content)
-
-		// Index the document
-		if err := c.engine.Index(doc); err != nil {
-			log.Printf("Error indexing page %s: %v", e.Request.URL.String(), err)
-		}
-	})
-
-	c.collector.OnError(func(r *colly.Response, err error) {
-		log.Printf("Error crawling %s: %v", r.Request.URL, err)
-	})
 
 	// Create a done channel for graceful shutdown
 	done := make(chan bool)
@@ -141,25 +138,10 @@ func (c *CollyCrawler) Crawl(ctx context.Context, url string) error {
 
 	go func() {
 		defer close(done)
-		// Create a new context for colly
-		collyCtx := colly.NewContext()
 
-		// Create request with all required parameters
-		request := c.collector.Request(
-			"GET",
-			url,
-			nil,      // io.Reader for request body
-			collyCtx, // colly context
-			nil,      // http.Header
-		)
-		if request == nil {
-			crawlErr = fmt.Errorf("failed to create request")
-			return
-		}
-
-		// Execute the request using Visit instead of Do
-		if err := c.collector.Visit(url); err != nil {
-			crawlErr = err
+		// Use Visit directly with error handling
+		if err := c.collector.Visit(normalizedURL); err != nil {
+			crawlErr = fmt.Errorf("visit failed: %w", err)
 			return
 		}
 
@@ -174,7 +156,7 @@ func (c *CollyCrawler) Crawl(ctx context.Context, url string) error {
 		if crawlErr != nil {
 			return fmt.Errorf("crawl error: %w", crawlErr)
 		}
-		log.Printf("Crawl completed for: %s", url)
+		log.Printf("Crawl completed for: %s", normalizedURL)
 		return nil
 	}
 }

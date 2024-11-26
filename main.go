@@ -154,12 +154,12 @@ func main() {
 						return nil
 					}
 
-					// For crawling
-					if err := app.Run(context.Background()); err != nil {
-						log.Printf("Error running application: %v", err)
-					}
-					// Signal to stop after crawling
+					// For crawling, we need to wait for OnHTML callbacks
 					go func() {
+						if err := app.Run(context.Background()); err != nil {
+							log.Printf("Error running application: %v", err)
+						}
+						// Only shutdown after all processing is complete
 						app.Shutdown()
 					}()
 					return nil

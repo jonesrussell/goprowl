@@ -49,12 +49,21 @@ func New(
 	c := colly.NewCollector(
 		colly.MaxDepth(config.MaxDepth),
 		colly.Async(true),
+		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36"),
 	)
 
 	c.Limit(&colly.LimitRule{
 		DomainGlob:  "*",
 		Parallelism: config.Parallelism,
 		RandomDelay: config.RandomDelay,
+	})
+
+	c.OnRequest(func(r *colly.Request) {
+		log.Printf("Visiting: %v", r.URL)
+	})
+
+	c.OnResponse(func(r *colly.Response) {
+		log.Printf("Got response %d from %v", r.StatusCode, r.Request.URL)
 	})
 
 	return &CollyCrawler{

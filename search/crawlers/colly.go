@@ -1,7 +1,9 @@
 package crawlers
 
 import (
+	"fmt"
 	"log"
+	"net/url"
 	"time"
 
 	"github.com/gocolly/colly/v2"
@@ -22,18 +24,20 @@ type CollyCrawler struct {
 }
 
 type Config struct {
-	MaxDepth     int
-	Parallelism  int
-	RandomDelay  time.Duration
-	AllowedHosts []string
+	MaxDepth       int
+	Parallelism    int
+	RandomDelay    time.Duration
+	AllowedHosts   []string
+	FollowExternal bool
 }
 
 func NewConfig() *Config {
 	return &Config{
-		MaxDepth:     3,
-		Parallelism:  2,
-		RandomDelay:  5 * time.Second,
-		AllowedHosts: []string{"*"},
+		MaxDepth:       3,
+		Parallelism:    2,
+		RandomDelay:    5 * time.Second,
+		AllowedHosts:   []string{"*"},
+		FollowExternal: false,
 	}
 }
 
@@ -63,19 +67,54 @@ func New(
 func (c *CollyCrawler) Crawl(url string) error {
 	log.Printf("Starting crawl of: %s", url)
 
+	// Parse the starting URL to get the domain
+	startDomain, err := extractDomain(url)
+	if err != nil {
+		return fmt.Errorf("invalid start URL: %v", err)
+	}
+	log.Printf("Base domain: %s", startDomain)
+
+	// Allow external domains if configured
+	if c.config.FollowExternal {
+		c.collector.AllowedDomains = nil // Allow all domains
+		log.Printf("Following external domains enabled")
+	} else {
+		c.collector.AllowedDomains = []string{startDomain}
+		log.Printf("Restricting to domain: %s", startDomain)
+	}
+
 	// Set up callbacks
 	c.collector.OnHTML("a[href]", func(e *colly.HTMLElement) {
 		link := e.Attr("href")
-		log.Printf("Found link: %s", link)
+		// Only follow links that are absolute or can be made absolute
+		absoluteURL := e.Request.AbsoluteURL(link)
+		if absoluteURL != "" {
+			log.Printf("Following link: %s", absoluteURL)
+			err := e.Request.Visit(absoluteURL)
+			if err != nil {
+				log.Printf("Error visiting %s: %v", absoluteURL, err)
+			}
+		}
 	})
 
 	c.collector.OnHTML("body", func(e *colly.HTMLElement) {
-		log.Printf("Visiting page: %s", e.Request.URL)
-		// Extract content and store it
+		url := e.Request.URL.String()
+		log.Printf("Crawling page: %s (depth: %d)", url, e.Request.Depth)
+
+		// Extract title and content
+		title := e.ChildText("h1")
+		if title == "" {
+			title = e.ChildText("title")
+		}
 		content := e.Text
-		err := c.engine.Index(NewDocument(e.Request.URL.String(), content))
+
+		doc := NewDocument(url, content)
+		err := c.engine.Index(doc)
 		if err != nil {
-			log.Printf("Error indexing page %s: %v", e.Request.URL, err)
+			log.Printf("Error indexing page %s: %v", url, err)
+		} else {
+			log.Printf("Indexed page: %s with title: %s", url, title)
+			log.Printf("Content length: %d bytes", len(content))
 		}
 	})
 
@@ -84,7 +123,24 @@ func (c *CollyCrawler) Crawl(url string) error {
 	})
 
 	// Start the crawl
-	return c.collector.Visit(url)
+	err = c.collector.Visit(url)
+	if err != nil {
+		return err
+	}
+
+	c.collector.Wait()
+	log.Printf("Crawl completed for: %s", url)
+
+	return nil
+}
+
+// Helper function to extract domain from URL
+func extractDomain(urlStr string) (string, error) {
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return "", err
+	}
+	return parsedURL.Host, nil
 }
 
 // Create a document type for crawled pages

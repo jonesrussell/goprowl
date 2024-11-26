@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"time"
 
@@ -40,8 +41,11 @@ type Config struct {
 }
 
 func NewConfig() *Config {
+	startURL := flag.String("url", "https://go.dev", "The URL to start crawling from")
+	flag.Parse()
+
 	return &Config{
-		StartURL: "https://go.dev",
+		StartURL: *startURL,
 	}
 }
 

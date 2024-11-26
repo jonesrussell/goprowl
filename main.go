@@ -11,7 +11,7 @@ import (
 	"github.com/jonesrussell/goprowl/search/crawlers"
 	"github.com/jonesrussell/goprowl/search/engine"
 	"github.com/jonesrussell/goprowl/search/storage"
-	"github.com/jonesrussell/goprowl/search/storage/memory"
+	"github.com/jonesrussell/goprowl/search/storage/bleve"
 	"go.uber.org/fx"
 )
 
@@ -19,7 +19,9 @@ import (
 var StorageModule = fx.Options(
 	fx.Provide(
 		fx.Annotate(
-			memory.New,
+			func() (storage.StorageAdapter, error) {
+				return bleve.New("data/search.bleve")
+			},
 			fx.As(new(storage.StorageAdapter)),
 		),
 	),
@@ -55,20 +57,23 @@ func NewConfig() *Config {
 
 // Application represents our running app
 type Application struct {
-	crawler *crawlers.CollyCrawler
-	engine  engine.SearchEngine
-	config  *Config
+	crawler    *crawlers.CollyCrawler
+	engine     engine.SearchEngine
+	config     *Config
+	shutdowner fx.Shutdowner
 }
 
 func NewApplication(
 	crawler *crawlers.CollyCrawler,
 	engine engine.SearchEngine,
 	config *Config,
+	shutdowner fx.Shutdowner,
 ) *Application {
 	return &Application{
-		crawler: crawler,
-		engine:  engine,
-		config:  config,
+		crawler:    crawler,
+		engine:     engine,
+		config:     config,
+		shutdowner: shutdowner,
 	}
 }
 
@@ -111,26 +116,79 @@ func (app *Application) Search(queryString string) error {
 }
 
 func main() {
-	app := fx.New(
-		// Provide all dependencies
-		fx.Provide(
-			NewConfig,
-			NewApplication,
-		),
+	listCmd := flag.Bool("list", false, "List all indexed documents")
+	searchQuery := flag.String("search", "", "Search indexed documents")
 
-		// Include our modules
+	app := fx.New(
 		StorageModule,
 		EngineModule,
 		CrawlerModule,
+		fx.Provide(NewConfig),
+		fx.Provide(NewApplication),
+		fx.Invoke(func(app *Application, lifecycle fx.Lifecycle) {
+			lifecycle.Append(fx.Hook{
+				OnStart: func(context.Context) error {
+					if *listCmd {
+						if err := app.ListDocuments(); err != nil {
+							log.Printf("Error listing documents: %v", err)
+						}
+						// Signal to stop the application
+						go func() {
+							app.Shutdown()
+						}()
+						return nil
+					}
 
-		// Start the application
-		fx.Invoke(func(app *Application) {
-			if err := app.Run(context.Background()); err != nil {
-				log.Fatal(err)
-			}
+					if *searchQuery != "" {
+						if err := app.Search(*searchQuery); err != nil {
+							log.Printf("Error searching documents: %v", err)
+						}
+						// Signal to stop the application
+						go func() {
+							app.Shutdown()
+						}()
+						return nil
+					}
+
+					// For crawling
+					if err := app.Run(context.Background()); err != nil {
+						log.Printf("Error running application: %v", err)
+					}
+					// Signal to stop after crawling
+					go func() {
+						app.Shutdown()
+					}()
+					return nil
+				},
+			})
 		}),
 	)
 
-	// Start the application
 	app.Run()
+}
+
+// Add this method to Application struct
+func (app *Application) ListDocuments() error {
+	docs, err := app.engine.List()
+	if err != nil {
+		return fmt.Errorf("failed to list documents: %w", err)
+	}
+
+	fmt.Printf("Found %d documents:\n\n", len(docs))
+	for _, doc := range docs {
+		content := doc.Content()
+		fmt.Printf("Title: %s\n", content["title"])
+		fmt.Printf("URL: %s\n", content["url"])
+		fmt.Printf("Type: %s\n", doc.Type())
+		fmt.Printf("Created: %s\n", doc.Metadata()["created_at"])
+		fmt.Println("---")
+	}
+
+	return nil
+}
+
+func (app *Application) Shutdown() {
+	if err := app.shutdowner.Shutdown(); err != nil {
+		log.Printf("Error shutting down: %v", err)
+	}
 }

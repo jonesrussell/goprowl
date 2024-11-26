@@ -78,6 +78,9 @@ type SearchEngine interface {
 	// Management operations
 	Reindex() error
 	Stats() *SearchStats
+
+	// List operation
+	List() ([]Document, error)
 }
 
 // SearchOptions represents options for searching

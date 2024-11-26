@@ -1,13 +1,13 @@
 ### 1. Storage Layer
-- [ ] Implement `MemoryStorage` adapter for development/testing
+- [x] Implement `MemoryStorage` adapter for development/testing
 - [ ] Create Bleve adapter for production use
 - [ ] Add Elasticsearch adapter as an alternative
-- [ ] Implement storage interface methods:
-  - [ ] Store
-  - [ ] Get
+- [x] Implement storage interface methods:
+  - [x] Store
+  - [x] Get
   - [ ] Delete
-  - [ ] List
-  - [ ] Search
+  - [x] List
+  - [x] Search
 
 ### 2. Indexing System
 - [ ] Create document analyzer pipeline

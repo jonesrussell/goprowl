@@ -106,24 +106,25 @@ func (c *CollyCrawler) Crawl(url string) error {
 		}
 	})
 
-	c.collector.OnHTML("body", func(e *colly.HTMLElement) {
-		url := e.Request.URL.String()
-		log.Printf("Crawling page: %s (depth: %d)", url, e.Request.Depth)
-
-		// Extract title and content
-		title := e.ChildText("h1")
+	c.collector.OnHTML("html", func(e *colly.HTMLElement) {
+		// Extract title from meta tags or title tag
+		title := e.ChildText("title")
 		if title == "" {
-			title = e.ChildText("title")
+			title = e.ChildAttr("meta[property='og:title']", "content")
 		}
-		content := e.Text
+		if title == "" {
+			title = e.Request.URL.String() // Use URL as fallback title
+		}
 
-		doc := NewDocument(url, content)
-		err := c.engine.Index(doc)
-		if err != nil {
-			log.Printf("Error indexing page %s: %v", url, err)
-		} else {
-			log.Printf("Indexed page: %s with title: %s", url, title)
-			log.Printf("Content length: %d bytes", len(content))
+		// Extract content from body
+		content := e.ChildText("body")
+
+		// Create document with both title and content
+		doc := NewDocument(e.Request.URL.String(), title, content)
+
+		// Index the document
+		if err := c.engine.Index(doc); err != nil {
+			log.Printf("Error indexing page %s: %v", e.Request.URL.String(), err)
 		}
 	})
 
@@ -158,11 +159,12 @@ type CrawledDocument struct {
 	content map[string]interface{}
 }
 
-func NewDocument(url string, content string) engine.Document {
+func NewDocument(url string, title string, content string) engine.Document {
 	return &CrawledDocument{
 		url: url,
 		content: map[string]interface{}{
 			"url":     url,
+			"title":   title,
 			"content": content,
 		},
 	}

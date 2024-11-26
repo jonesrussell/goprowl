@@ -7,12 +7,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blevesearch/bleve/v2"
+	"github.com/blevesearch/bleve/v2/document"
+	"github.com/blevesearch/bleve/v2/mapping"
 	"github.com/jonesrussell/goprowl/search/storage"
 )
 
 type BasicSearchEngine struct {
 	storage storage.StorageAdapter
 	stats   *SearchStats
+	index   bleve.Index
 }
 
 func (e *BasicSearchEngine) Search(query Query) (*SearchResult, error) {
@@ -130,24 +134,59 @@ func (d *BasicDocument) Permission() *Permission          { return d.permission 
 
 // Also implement other SearchEngine interface methods:
 func (e *BasicSearchEngine) Index(doc Document) error {
-	// Convert Document interface to storage.Document
-	storageDoc := &storage.Document{
-		URL:       doc.ID(), // Using ID as URL since that's our current pattern
-		Title:     doc.Content()["title"].(string),
-		Content:   doc.Content()["content"].(string),
-		Type:      doc.Type(),
-		CreatedAt: time.Now(),
+	if doc == nil {
+		return fmt.Errorf("cannot index nil document")
 	}
 
-	// Store the document using the storage adapter
+	content := doc.Content()
+	if content == nil {
+		return fmt.Errorf("document content is nil")
+	}
+
+	// Safely get title with type assertion
+	title, ok := content["title"].(string)
+	if !ok {
+		return fmt.Errorf("invalid or missing title in document content")
+	}
+
+	// Safely get content with type assertion
+	contentStr, ok := content["content"].(string)
+	if !ok {
+		return fmt.Errorf("invalid or missing content in document content")
+	}
+
+	// Convert Document interface to storage.Document
+	storageDoc := &storage.Document{
+		URL:     doc.ID(),
+		Title:   title,
+		Content: contentStr,
+		Type:    doc.Type(),
+	}
+
+	// Create a new document for indexing
+	indexDoc := document.NewDocument(storageDoc.URL)
+
+	// Only add fields that are not empty
+	if storageDoc.Title != "" {
+		indexDoc.AddField(document.NewTextField("title", []uint64{}, []byte(storageDoc.Title)))
+	}
+	if storageDoc.Content != "" {
+		indexDoc.AddField(document.NewTextField("content", []uint64{}, []byte(storageDoc.Content)))
+	}
+	if storageDoc.Type != "" {
+		indexDoc.AddField(document.NewTextField("type", []uint64{}, []byte(storageDoc.Type)))
+	}
+
+	// Store in storage adapter
 	err := e.storage.Store(context.Background(), storageDoc)
 	if err != nil {
 		return fmt.Errorf("failed to store document: %w", err)
 	}
 
-	// Update stats
-	e.stats.DocumentCount++
-	e.stats.LastIndexed = time.Now()
+	// Index the document
+	if err := e.index.Index(storageDoc.URL, indexDoc); err != nil {
+		return fmt.Errorf("failed to index document: %w", err)
+	}
 
 	return nil
 }
@@ -227,13 +266,21 @@ func (e *BasicSearchEngine) matchesFilters(doc *storage.Document, filters map[st
 	return true
 }
 
-func New(storage storage.StorageAdapter) SearchEngine {
+func New(storage storage.StorageAdapter) (SearchEngine, error) {
+	// Create new bleve index in memory
+	indexMapping := mapping.NewIndexMapping()
+	index, err := bleve.NewMemOnly(indexMapping)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create search index: %w", err)
+	}
+
 	return &BasicSearchEngine{
 		storage: storage,
 		stats: &SearchStats{
 			LastIndexed: time.Now(),
 		},
-	}
+		index: index,
+	}, nil
 }
 
 // SearchWithOptions implements the SearchEngine interface
@@ -269,4 +316,30 @@ func (e *BasicSearchEngine) GetTotalResults(ctx context.Context, queryString str
 	}
 
 	return int(total), nil
+}
+
+func (e *BasicSearchEngine) List() ([]Document, error) {
+	ctx := context.Background()
+	docs, err := e.storage.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list documents: %w", err)
+	}
+
+	results := make([]Document, 0, len(docs))
+	for _, doc := range docs {
+		results = append(results, &BasicDocument{
+			id: doc.URL,
+			content: map[string]interface{}{
+				"url":     doc.URL,
+				"title":   doc.Title,
+				"content": doc.Content,
+			},
+			docType: doc.Type,
+			metadata: map[string]interface{}{
+				"created_at": doc.CreatedAt,
+			},
+		})
+	}
+
+	return results, nil
 }

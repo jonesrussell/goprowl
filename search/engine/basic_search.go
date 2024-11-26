@@ -58,7 +58,7 @@ func (e *BasicSearchEngine) Search(query Query) (*SearchResult, error) {
 
 	// Apply pagination
 	page := query.Pagination()
-	start := (page.Number - 1) * page.Size
+	start := (page.Page - 1) * page.Size
 	end := start + page.Size
 	if end > len(scored) {
 		end = len(scored)
@@ -235,18 +235,49 @@ func (e *BasicSearchEngine) Stats() *SearchStats {
 	return e.stats
 }
 
-func (e *BasicSearchEngine) calculateRelevancy(doc *storage.Document, terms []string) float64 {
+func (e *BasicSearchEngine) calculateRelevancy(doc *storage.Document, terms []*QueryTerm) float64 {
 	score := 0.0
 
 	for _, term := range terms {
-		// Title matching (higher weight)
-		if strings.Contains(strings.ToLower(doc.Title), strings.ToLower(term)) {
-			score += 2.0
-		}
+		switch term.Type {
+		case TypePhrase:
+			if strings.Contains(doc.Title, term.Text) {
+				score += 3.0
+			}
+			if strings.Contains(doc.Content, term.Text) {
+				score += 2.0
+			}
 
-		// Content matching
-		if strings.Contains(strings.ToLower(doc.Content), strings.ToLower(term)) {
-			score += 1.0
+		case TypeFuzzy:
+			// Implement fuzzy matching logic here
+			// For now, simple contains check
+			if strings.Contains(doc.Title, term.Text) {
+				score += 2.0
+			}
+			if strings.Contains(doc.Content, term.Text) {
+				score += 1.0
+			}
+
+		default:
+			if term.Field != "" {
+				switch term.Field {
+				case "title":
+					if strings.Contains(strings.ToLower(doc.Title), strings.ToLower(term.Text)) {
+						score += 2.0
+					}
+				case "content":
+					if strings.Contains(strings.ToLower(doc.Content), strings.ToLower(term.Text)) {
+						score += 1.0
+					}
+				}
+			} else {
+				if strings.Contains(strings.ToLower(doc.Title), strings.ToLower(term.Text)) {
+					score += 2.0
+				}
+				if strings.Contains(strings.ToLower(doc.Content), strings.ToLower(term.Text)) {
+					score += 1.0
+				}
+			}
 		}
 	}
 
@@ -285,8 +316,12 @@ func New(storage storage.StorageAdapter) (SearchEngine, error) {
 
 // SearchWithOptions implements the SearchEngine interface
 func (e *BasicSearchEngine) SearchWithOptions(ctx context.Context, opts SearchOptions) ([]SearchResult, error) {
-	// Convert SearchOptions to Query
-	query := NewBasicQuery(strings.Fields(opts.Query))
+	processor := NewQueryProcessor()
+	query, err := processor.ParseQuery(opts.Query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse query: %w", err)
+	}
+	query.SetPagination(opts.Page, opts.PageSize)
 
 	// Use existing Search method
 	result, err := e.Search(query)
@@ -300,8 +335,11 @@ func (e *BasicSearchEngine) SearchWithOptions(ctx context.Context, opts SearchOp
 
 // GetTotalResults implements the SearchEngine interface
 func (e *BasicSearchEngine) GetTotalResults(ctx context.Context, queryString string) (int, error) {
-	// Create a basic query from the query string
-	query := NewBasicQuery(strings.Fields(queryString))
+	processor := NewQueryProcessor()
+	query, err := processor.ParseQuery(queryString)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse query: %w", err)
+	}
 
 	// Use existing Search method
 	result, err := e.Search(query)

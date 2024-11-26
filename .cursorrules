@@ -9,3 +9,10 @@ Always use context.Context for cancellation and timeouts
 Never skip error handling
 Never use init() functions except for fx.Module registration
 Run code through golangci-lint before suggesting changes
+
+Files named types.go should only contain interface and type definitions
+
+The separation of concerns is now:
+search/engine/types.go: Interface and type definitions
+search/engine/query.go: Query parsing and processing
+search/engine/basic_search.go: Search implementation and relevancy calculation

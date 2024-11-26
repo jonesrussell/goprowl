@@ -5,47 +5,66 @@ import (
 	"time"
 )
 
-// Permission represents access control for documents
-type Permission struct {
-	Read  []string
-	Write []string
+// Query interface defines the contract for all query types
+type Query interface {
+	Terms() []*QueryTerm
+	Filters() map[string]interface{}
+	Pagination() *Pagination
 }
 
-// Page represents pagination information
-type Page struct {
-	Number int
-	Size   int
-}
-
-// SortField represents sorting configuration
-type SortField struct {
+// QueryTerm represents a structured query term
+type QueryTerm struct {
+	Text      string
+	Type      QueryType
 	Field     string
-	Ascending bool
+	Fuzziness int
+	Required  bool
+	Excluded  bool
 }
 
-// SearchStats contains search engine statistics
-type SearchStats struct {
-	DocumentCount  int64
-	IndexSize      int64
-	LastIndexed    time.Time
-	QueryCount     int64
-	AverageLatency time.Duration
+// Pagination holds pagination information
+type Pagination struct {
+	Page int
+	Size int
 }
 
-// Facet represents a category or filter value with its count
-type Facet struct {
-	Value string
-	Count int64
+// SearchOptions represents options for search operations
+type SearchOptions struct {
+	Query     string
+	Filters   map[string]interface{}
+	Page      int
+	PageSize  int
+	SortBy    string
+	SortOrder string
 }
 
-// SearchResult represents search results
+// SearchResult represents a search result
 type SearchResult struct {
 	Hits     []Document
 	Facets   map[string][]Facet
 	Metadata map[string]interface{}
 }
 
-// Document interface as defined in the spec
+// Facet represents a facet in search results
+type Facet struct {
+	Value string
+	Count int64
+}
+
+// SearchStats holds search engine statistics
+type SearchStats struct {
+	DocumentCount int64
+	LastIndexed   time.Time
+	IndexSize     int64
+}
+
+// Permission represents document access permissions
+type Permission struct {
+	Read  []string
+	Write []string
+}
+
+// Document interface defines the contract for searchable documents
 type Document interface {
 	ID() string
 	Type() string
@@ -54,15 +73,7 @@ type Document interface {
 	Permission() *Permission
 }
 
-// Query interface as defined in the spec
-type Query interface {
-	Terms() []string
-	Filters() map[string]interface{}
-	Pagination() *Page
-	Sort() []SortField
-}
-
-// SearchEngine interface as defined in the spec
+// SearchEngine interface defines the contract for search engine implementations
 type SearchEngine interface {
 	// Indexing operations
 	Index(doc Document) error
@@ -81,14 +92,4 @@ type SearchEngine interface {
 
 	// List operation
 	List() ([]Document, error)
-}
-
-// SearchOptions represents options for searching
-type SearchOptions struct {
-	Query     string
-	FromDate  *time.Time
-	ToDate    *time.Time
-	TitleOnly bool
-	Limit     int
-	Offset    int
 }

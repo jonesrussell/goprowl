@@ -4,85 +4,116 @@ import (
 	"strings"
 )
 
-// QueryProcessor handles query parsing and optimization
-type QueryProcessor struct {
-	minTermLength int
-	stopWords     map[string]struct{}
-}
+type QueryType int
 
-// New creates a new QueryProcessor
-func New() *QueryProcessor {
-	return &QueryProcessor{
-		minTermLength: 2,
-		stopWords:     defaultStopWords(),
-	}
-}
+const (
+	TypeSimple QueryType = iota
+	TypePhrase
+	TypeFuzzy
+	TypeBoolean
+)
 
-// ProcessQuery parses and optimizes a search query
-func (qp *QueryProcessor) ProcessQuery(rawQuery string) *Query {
-	terms := qp.tokenize(rawQuery)
-	terms = qp.removeStopWords(terms)
-	terms = qp.filterShortTerms(terms)
-
-	return &Query{
-		Terms:   terms,
-		Filters: make(map[string]interface{}),
-		Page:    &Page{Number: 1, Size: 10},
-		Sort:    []SortField{{Field: "_score", Ascending: false}},
-	}
-}
-
-// Query represents a processed search query
-type Query struct {
-	Terms   []string
-	Filters map[string]interface{}
-	Page    *Page
-	Sort    []SortField
-}
-
-// Page represents pagination information
-type Page struct {
-	Number int
-	Size   int
-}
-
-// SortField represents a field to sort by and its direction
-type SortField struct {
+type QueryTerm struct {
+	Text      string
 	Field     string
-	Ascending bool
+	Type      QueryType
+	Fuzziness int     // For fuzzy matching
+	Required  bool    // For boolean AND
+	Excluded  bool    // For boolean NOT
+	Boost     float64 // Term importance
 }
 
-func (qp *QueryProcessor) tokenize(text string) []string {
-	return strings.Fields(strings.ToLower(text))
+type QueryProcessor struct {
+	// Remove unused fields and add any necessary state here
 }
 
-func (qp *QueryProcessor) removeStopWords(terms []string) []string {
-	filtered := make([]string, 0, len(terms))
-	for _, term := range terms {
-		if _, isStopWord := qp.stopWords[term]; !isStopWord {
-			filtered = append(filtered, term)
+func NewQueryProcessor() *QueryProcessor {
+	return &QueryProcessor{}
+}
+
+// ParseQuery is a more descriptive name than just Parse
+func (p *QueryProcessor) ParseQuery(queryString string) ([]*QueryTerm, error) {
+	terms := strings.Fields(queryString)
+	var queryTerms []*QueryTerm
+
+	for i := 0; i < len(terms); i++ {
+		term := terms[i]
+
+		// Handle boolean operators
+		switch strings.ToUpper(term) {
+		case "AND":
+			if i+1 < len(terms) {
+				i++
+				queryTerms = append(queryTerms, &QueryTerm{
+					Text:     terms[i],
+					Required: true,
+					Type:     TypeSimple,
+				})
+			}
+			continue
+		case "OR":
+			continue
+		case "NOT":
+			if i+1 < len(terms) {
+				i++
+				queryTerms = append(queryTerms, &QueryTerm{
+					Text:     terms[i],
+					Excluded: true,
+					Type:     TypeSimple,
+				})
+			}
+			continue
 		}
-	}
-	return filtered
-}
 
-func (qp *QueryProcessor) filterShortTerms(terms []string) []string {
-	filtered := make([]string, 0, len(terms))
-	for _, term := range terms {
-		if len(term) >= qp.minTermLength {
-			filtered = append(filtered, term)
+		// Handle phrase matching
+		if strings.HasPrefix(term, "\"") {
+			phrase := []string{strings.TrimPrefix(term, "\"")}
+			for i++; i < len(terms); i++ {
+				phrase = append(phrase, terms[i])
+				if strings.HasSuffix(terms[i], "\"") {
+					phrase[len(phrase)-1] = strings.TrimSuffix(phrase[len(phrase)-1], "\"")
+					break
+				}
+			}
+			queryTerms = append(queryTerms, &QueryTerm{
+				Text: strings.Join(phrase, " "),
+				Type: TypePhrase,
+			})
+			continue
 		}
-	}
-	return filtered
-}
 
-func defaultStopWords() map[string]struct{} {
-	words := []string{"a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
-		"has", "he", "in", "is", "it", "its", "of", "on", "that", "the",
-		"to", "was", "were", "will", "with"}
-	stopWords := make(map[string]struct{})
-	for _, word := range words {
-		stopWords[word] = struct{}{}
+		// Handle fuzzy matching
+		if strings.Contains(term, "~") {
+			parts := strings.Split(term, "~")
+			fuzziness := 1 // Default fuzziness
+			if len(parts) > 1 && parts[1] != "" {
+				fuzziness = int(parts[1][0] - '0')
+			}
+			queryTerms = append(queryTerms, &QueryTerm{
+				Text:      parts[0],
+				Type:      TypeFuzzy,
+				Fuzziness: fuzziness,
+			})
+			continue
+		}
+
+		// Handle field-specific search
+		if strings.Contains(term, ":") {
+			parts := strings.Split(term, ":")
+			queryTerms = append(queryTerms, &QueryTerm{
+				Field: parts[0],
+				Text:  parts[1],
+				Type:  TypeSimple,
+			})
+			continue
+		}
+
+		// Simple term
+		queryTerms = append(queryTerms, &QueryTerm{
+			Text: term,
+			Type: TypeSimple,
+		})
 	}
-	return stopWords
+
+	return queryTerms, nil
 }

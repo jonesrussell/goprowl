@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
 	"github.com/jonesrussell/goprowl/search/crawlers"
@@ -98,8 +97,30 @@ func NewCrawlerConfig(config *Config) *crawlers.Config {
 	}
 }
 
-func (app *Application) Search(queryString string) error {
-	query := engine.NewBasicQuery(strings.Fields(queryString))
+func (app *Application) Search(queryStr string) error {
+	processor := engine.NewQueryProcessor()
+	query, err := processor.ParseQuery(queryStr)
+	if err != nil {
+		return fmt.Errorf("failed to parse query: %w", err)
+	}
+
+	// Log the parsed query for debugging
+	for _, term := range query.Terms() {
+		switch term.Type {
+		case engine.TypePhrase:
+			log.Printf("Phrase search: %q", term.Text)
+		case engine.TypeFuzzy:
+			log.Printf("Fuzzy search: %s~%d", term.Text, term.Fuzziness)
+		case engine.TypeSimple:
+			if term.Required {
+				log.Printf("Required term: %s", term.Text)
+			} else if term.Excluded {
+				log.Printf("Excluded term: %s", term.Text)
+			} else {
+				log.Printf("Simple term: %s", term.Text)
+			}
+		}
+	}
 
 	results, err := app.engine.Search(query)
 	if err != nil {
@@ -121,7 +142,12 @@ func (app *Application) Search(queryString string) error {
 
 func main() {
 	listCmd := flag.Bool("list", false, "List all indexed documents")
-	searchQuery := flag.String("search", "", "Search indexed documents")
+	searchQuery := flag.String("search", "", `Search indexed documents. Supports:
+		- Phrase matching: "exact phrase"
+		- Boolean operators: term1 AND term2, NOT term
+		- Fuzzy matching: word~2
+		- Field search: title:word
+		Example: -search="title:golang AND \"web crawler\"~2"`)
 
 	app := fx.New(
 		StorageModule,

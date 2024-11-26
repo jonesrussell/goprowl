@@ -1,45 +1,54 @@
 ### 1. Storage Layer
 - [x] Implement `MemoryStorage` adapter for development/testing
-- [ ] Create Bleve adapter for production use
+- [x] Create Bleve adapter for production use
 - [ ] Add Elasticsearch adapter as an alternative
 - [x] Implement storage interface methods:
   - [x] Store
   - [x] Get
-  - [ ] Delete
+  - [x] Delete
   - [x] List
   - [x] Search
 
 ### 2. Indexing System
-- [ ] Create document analyzer pipeline
-  - [ ] Text tokenization
+- [x] Create document analyzer pipeline
+  - [x] Basic text tokenization
   - [ ] Stop word removal
   - [ ] Stemming
-  - [ ] Language detection
-- [ ] Implement indexing strategies
-  - [ ] Forward index
-  - [ ] Inverted index
+  - [x] Language detection
+- [x] Implement indexing strategies
+  - [x] Forward index
+  - [x] Inverted index (via Bleve)
 - [ ] Add batch processing capabilities
 - [ ] Create reindexing functionality
 
 ### 3. Query Processing
-- [ ] Implement query parser
+- [x] Implement basic query parser
 - [ ] Add support for:
-  - [ ] Full-text search
+  - [x] Full-text search
   - [ ] Phrase matching
   - [ ] Fuzzy matching
   - [ ] Boolean operators (AND, OR, NOT)
-  - [ ] Field-specific searches
+  - [x] Field-specific searches
 - [ ] Create query optimization layer
 - [ ] Implement faceted search
 
-### 4. Ranking System
-- [ ] Implement basic TF-IDF scoring
-- [ ] Add BM25 ranking algorithm
-- [ ] Create customizable ranking factors
-- [ ] Support for:
-  - [ ] Boost factors
-  - [ ] Field weights
-  - [ ] Custom scoring functions
+### 4. Crawler Improvements
+- [x] Basic crawling functionality
+- [x] Domain restriction
+- [x] Depth limiting
+- [x] Concurrent crawling
+- [x] Respect robots.txt
+- [x] Add rate limiting per domain
+- [x] Handle redirects properly (via Colly)
+- [x] Implement retry mechanism
+- [x] Add URL normalization
+- [x] Improve error handling
+- [ ] Add crawl status reporting
+- [ ] Add metrics collection
+- [ ] Implement crawl queue persistence
+- [ ] Add support for sitemap.xml
+- [ ] Implement crawl resumption
+- [ ] Add content hash checking for updates
 
 ### 5. API Layer
 - [ ] Design RESTful API endpoints

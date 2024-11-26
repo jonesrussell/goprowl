@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/gocolly/colly/v2"
+	"github.com/gocolly/colly/v2/extensions"
 	"github.com/jonesrussell/goprowl/search/engine"
 	"go.uber.org/fx"
 )
@@ -22,6 +25,8 @@ type CollyCrawler struct {
 	collector *colly.Collector
 	engine    engine.SearchEngine
 	config    *Config
+	// Only keep the lastVisit map for rate limiting
+	lastVisit sync.Map
 }
 
 type Config struct {
@@ -31,6 +36,11 @@ type Config struct {
 	AllowedHosts   []string
 	FollowExternal bool
 	CrawlTimeout   time.Duration
+	// Updated configuration option name
+	IgnoreRobots bool                     // Changed from RespectRobots
+	RateLimit    map[string]time.Duration // Per-domain rate limits
+	MaxRetries   int
+	RetryDelay   time.Duration
 }
 
 func NewConfig() *Config {
@@ -41,6 +51,12 @@ func NewConfig() *Config {
 		AllowedHosts:   []string{"*"},
 		FollowExternal: false,
 		CrawlTimeout:   30 * time.Second,
+		IgnoreRobots:   false, // Default to respecting robots.txt
+		RateLimit: map[string]time.Duration{
+			"*": 1 * time.Second, // Default rate limit
+		},
+		MaxRetries: 3,
+		RetryDelay: 5 * time.Second,
 	}
 }
 
@@ -49,55 +65,146 @@ func New(
 	engine engine.SearchEngine,
 	config *Config,
 ) *CollyCrawler {
-	c := colly.NewCollector(
+	options := []colly.CollectorOption{
 		colly.MaxDepth(config.MaxDepth),
 		colly.Async(true),
 		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Safari/537.36"),
-	)
+	}
 
+	// Add robots.txt configuration
+	if config.IgnoreRobots {
+		options = append(options, colly.IgnoreRobotsTxt())
+	}
+
+	c := colly.NewCollector(options...)
+
+	// Add random user agent if respecting robots.txt
+	if !config.IgnoreRobots {
+		extensions.RandomUserAgent(c)
+	}
+
+	// Configure rate limiting
 	c.Limit(&colly.LimitRule{
 		DomainGlob:  "*",
 		Parallelism: config.Parallelism,
 		RandomDelay: config.RandomDelay,
 	})
 
-	c.OnRequest(func(r *colly.Request) {
+	crawler := &CollyCrawler{
+		collector: c,
+		engine:    engine,
+		config:    config,
+	}
+
+	crawler.setupCallbacks()
+	return crawler
+}
+
+func (c *CollyCrawler) setupCallbacks() {
+	c.collector.OnRequest(func(r *colly.Request) {
 		log.Printf("Visiting: %v", r.URL)
+
+		// Apply per-domain rate limiting
+		domain := r.URL.Host
+		if err := c.checkRateLimit(domain); err != nil {
+			r.Abort()
+			return
+		}
 	})
 
-	c.OnResponse(func(r *colly.Response) {
+	c.collector.OnResponse(func(r *colly.Response) {
 		log.Printf("Got response %d from %v", r.StatusCode, r.Request.URL)
 	})
 
-	// Add handlers for links and content
-	c.OnHTML("a[href]", func(e *colly.HTMLElement) {
+	c.collector.OnHTML("a[href]", func(e *colly.HTMLElement) {
 		link := e.Attr("href")
-		e.Request.Visit(link)
+		normalizedURL := c.normalizeURL(e.Request.URL, link)
+		if normalizedURL != "" {
+			e.Request.Visit(normalizedURL)
+		}
 	})
 
-	c.OnHTML("html", func(e *colly.HTMLElement) {
-		// Create a document from the page
+	c.collector.OnHTML("html", func(e *colly.HTMLElement) {
 		title := e.ChildText("title")
 		content := e.Text
 		url := e.Request.URL.String()
 
 		doc := NewDocument(url, title, content)
-
-		// Index the document
-		if err := engine.Index(doc); err != nil {
+		if err := c.engine.Index(doc); err != nil {
 			log.Printf("Error indexing document: %v", err)
 		}
 	})
 
-	c.OnError(func(r *colly.Response, err error) {
+	c.collector.OnError(func(r *colly.Response, err error) {
 		log.Printf("Error visiting %v: %v", r.Request.URL, err)
-	})
 
-	return &CollyCrawler{
-		collector: c,
-		engine:    engine,
-		config:    config,
+		// Get the current retry count from context or default to 0
+		retryCount := 0
+		if count := r.Ctx.GetAny("retry_count"); count != nil {
+			retryCount = count.(int)
+		}
+
+		if r.StatusCode >= 500 && retryCount < c.config.MaxRetries {
+			retryCount++
+			retryAfter := time.Duration(retryCount) * c.config.RetryDelay
+			time.Sleep(retryAfter)
+
+			// Store updated retry count
+			r.Ctx.Put("retry_count", retryCount)
+
+			// Retry the request
+			r.Request.Visit(r.Request.URL.String())
+		}
+	})
+}
+
+func (c *CollyCrawler) checkRateLimit(domain string) error {
+	now := time.Now()
+
+	// Get domain-specific rate limit or use default
+	rateLimit, ok := c.config.RateLimit[domain]
+	if !ok {
+		rateLimit = c.config.RateLimit["*"]
 	}
+
+	// Check and update last visit time
+	if lastVisitI, ok := c.lastVisit.Load(domain); ok {
+		lastVisit := lastVisitI.(time.Time)
+		if now.Sub(lastVisit) < rateLimit {
+			return fmt.Errorf("rate limit exceeded for domain: %s", domain)
+		}
+	}
+
+	c.lastVisit.Store(domain, now)
+	return nil
+}
+
+func (c *CollyCrawler) normalizeURL(baseURL *url.URL, rawURL string) string {
+	// Parse the URL
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+
+	// Handle relative URLs
+	resolvedURL := baseURL.ResolveReference(parsedURL)
+
+	// Clean the path
+	resolvedURL.Path = strings.TrimSuffix(resolvedURL.Path, "/")
+	resolvedURL.Path = strings.TrimSuffix(resolvedURL.Path, "index.html")
+
+	// Remove common tracking parameters
+	q := resolvedURL.Query()
+	paramsToRemove := []string{"utm_source", "utm_medium", "utm_campaign", "fbclid", "gclid"}
+	for _, param := range paramsToRemove {
+		q.Del(param)
+	}
+	resolvedURL.RawQuery = q.Encode()
+
+	// Remove fragments unless they're part of single-page applications
+	resolvedURL.Fragment = ""
+
+	return resolvedURL.String()
 }
 
 func (c *CollyCrawler) Crawl(ctx context.Context, urlStr string) error {

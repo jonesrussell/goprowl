@@ -1,0 +1,45 @@
+# Binaries and compiled files
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+goprowl
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Local development files
+.env
+.env.local
+*.log
+
+# Bleve search index data
+data/search.bleve/
+
+# Binary files
+bin/
+dist/
+
+# Debug files
+__debug_bin
+
+# Test coverage
+coverage.txt
+coverage.html
+
+# Air live reload
+tmp/

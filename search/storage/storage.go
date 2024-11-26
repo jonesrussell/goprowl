@@ -13,7 +13,4 @@ type StorageAdapter interface {
 
 	// List returns all document IDs
 	List() ([]string, error)
-
-	// Search performs a basic search operation
-	Search(query map[string]interface{}) ([]map[string]interface{}, error)
 }

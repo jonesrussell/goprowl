@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"fmt"
 	"sync"
 )
 
@@ -19,11 +18,11 @@ func New() *MemoryStorage {
 }
 
 // Store saves a document to memory
-func (m *MemoryStorage) Store(id string, data map[string]interface{}) error {
+func (m *MemoryStorage) Store(id string, content map[string]interface{}) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.store[id] = data
+	m.store[id] = content
 	return nil
 }
 
@@ -32,11 +31,10 @@ func (m *MemoryStorage) Get(id string) (map[string]interface{}, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	doc, exists := m.store[id]
-	if !exists {
-		return nil, fmt.Errorf("document with id %s not found", id)
+	if content, exists := m.store[id]; exists {
+		return content, nil
 	}
-	return doc, nil
+	return nil, nil
 }
 
 // Delete removes a document from memory
@@ -44,9 +42,6 @@ func (m *MemoryStorage) Delete(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, exists := m.store[id]; !exists {
-		return fmt.Errorf("document with id %s not found", id)
-	}
 	delete(m.store, id)
 	return nil
 }

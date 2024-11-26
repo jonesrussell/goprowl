@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"strings"
+
 	"github.com/jonesrussell/goprowl/search/storage"
 )
 
@@ -45,37 +47,35 @@ func (e *DefaultSearchEngine) Suggest(prefix string) []string {
 	return []string{}
 }
 
-// Search performs a search query
+// Search performs the search operation using the engine's search capabilities
 func (e *DefaultSearchEngine) Search(query Query) (*SearchResult, error) {
-	// Convert query to storage format
-	storageQuery := map[string]interface{}{
-		"terms":   query.Terms(),
-		"filters": query.Filters(),
-	}
-
-	// Perform search
-	docs, err := e.storage.Search(storageQuery)
+	// Get all documents from storage
+	ids, err := e.storage.List()
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert results
-	hits := make([]Document, 0, len(docs))
-	for _, doc := range docs {
-		hits = append(hits, &BaseDocument{
-			id:       doc["id"].(string),
-			docType:  doc["type"].(string),
-			content:  doc,
-			metadata: make(map[string]interface{}),
-		})
+	results := &SearchResult{
+		Hits: make([]Document, 0),
 	}
 
-	return &SearchResult{
-		Total:    int64(len(hits)),
-		Hits:     hits,
-		Facets:   make(map[string][]Facet),
-		Metadata: make(map[string]interface{}),
-	}, nil
+	// Process each document
+	for _, id := range ids {
+		doc, err := e.storage.Get(id)
+		if err != nil {
+			continue
+		}
+
+		// Apply search criteria and ranking here
+		// This is where the actual search logic should live
+		if matchesQuery(doc, query) {
+			// Convert to Document interface
+			results.Hits = append(results.Hits, convertToDocument(id, doc))
+		}
+	}
+
+	results.Total = int64(len(results.Hits))
+	return results, nil
 }
 
 // Stats returns current search engine statistics
@@ -91,4 +91,47 @@ func (e *DefaultSearchEngine) Stats() *SearchStats {
 func (e *DefaultSearchEngine) Reindex() error {
 	// TODO: Implement reindexing logic
 	return nil
+}
+
+// matchesQuery checks if a document matches the search criteria
+func matchesQuery(doc map[string]interface{}, query Query) bool {
+	// Get search terms from the query
+	terms := query.Terms()
+	if len(terms) == 0 {
+		return true // No terms means match all
+	}
+
+	// Check if any content field contains any of the search terms
+	content, ok := doc["content"].(string)
+	if !ok {
+		return false
+	}
+
+	contentLower := strings.ToLower(content)
+	for _, term := range terms {
+		if strings.Contains(contentLower, strings.ToLower(term)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// convertToDocument creates a Document interface from raw storage data
+func convertToDocument(id string, data map[string]interface{}) Document {
+	doc := NewDocument(id, "page") // Assuming "page" as default type
+
+	// Copy content
+	if content, ok := data["content"]; ok {
+		doc.SetContent("content", content)
+	}
+
+	// Copy metadata if it exists
+	if metadata, ok := data["metadata"].(map[string]interface{}); ok {
+		for key, value := range metadata {
+			doc.SetMetadata(key, value)
+		}
+	}
+
+	return doc
 }

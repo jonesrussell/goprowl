@@ -1,24 +1,107 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"log"
+	"time"
 
-	"github.com/gocolly/colly/v2"
+	"github.com/jonesrussell/goprowl/search/crawlers"
+	"github.com/jonesrussell/goprowl/search/engine"
+	"github.com/jonesrussell/goprowl/search/storage"
+	"github.com/jonesrussell/goprowl/search/storage/memory"
+	"go.uber.org/fx"
 )
 
-func main() {
-	// Create a new collector
-	c := colly.NewCollector()
+// Module options for different components
+var StorageModule = fx.Options(
+	fx.Provide(
+		memory.New,
+		fx.Annotate(
+			memory.New,
+			fx.As(new(storage.StorageAdapter)),
+		),
+	),
+)
 
-	// Verify setup with a simple print
-	c.OnHTML("title", func(e *colly.HTMLElement) {
-		fmt.Printf("Page Title: %s\n", e.Text)
-	})
+var EngineModule = fx.Options(
+	fx.Provide(engine.New),
+)
 
-	// Visit test page
-	err := c.Visit("http://go.dev")
-	if err != nil {
-		log.Fatal(err)
+var CrawlerModule = fx.Options(
+	fx.Provide(
+		crawlers.New,
+		NewCrawlerConfig,
+	),
+)
+
+// Application configuration
+type Config struct {
+	StartURL string
+}
+
+func NewConfig() *Config {
+	return &Config{
+		StartURL: "https://go.dev",
 	}
+}
+
+// Application represents our running app
+type Application struct {
+	crawler *crawlers.CollyCrawler
+	engine  engine.SearchEngine
+	config  *Config
+}
+
+func NewApplication(
+	crawler *crawlers.CollyCrawler,
+	engine engine.SearchEngine,
+	config *Config,
+) *Application {
+	return &Application{
+		crawler: crawler,
+		engine:  engine,
+		config:  config,
+	}
+}
+
+// Run starts the application
+func (app *Application) Run(ctx context.Context) error {
+	// Use the config's StartURL instead of hardcoding
+	if err := app.crawler.Crawl(app.config.StartURL); err != nil {
+		return err
+	}
+	return nil
+}
+
+func NewCrawlerConfig() *crawlers.Config {
+	return &crawlers.Config{
+		MaxDepth:    3,
+		Parallelism: 2,
+		RandomDelay: 1 * time.Second,
+	}
+}
+
+func main() {
+	app := fx.New(
+		// Provide all dependencies
+		fx.Provide(
+			NewConfig,
+			NewApplication,
+		),
+
+		// Include our modules
+		StorageModule,
+		EngineModule,
+		CrawlerModule,
+
+		// Start the application
+		fx.Invoke(func(app *Application) {
+			if err := app.Run(context.Background()); err != nil {
+				log.Fatal(err)
+			}
+		}),
+	)
+
+	// Start the application
+	app.Run()
 }

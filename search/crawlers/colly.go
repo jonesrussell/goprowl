@@ -1,33 +1,61 @@
-package crawler
+package crawlers
 
 import (
 	"time"
 
-	"github.com/jonesrussell/goprowl/search/engine"
-
 	"github.com/gocolly/colly/v2"
+	"github.com/jonesrussell/goprowl/search/engine"
+	"go.uber.org/fx"
+)
+
+// Module provides fx options for the crawler
+var Module = fx.Options(
+	fx.Provide(New),
+	fx.Provide(NewConfig),
 )
 
 type CollyCrawler struct {
 	collector *colly.Collector
 	engine    engine.SearchEngine
+	config    *Config
 }
 
-func New(searchEngine engine.SearchEngine) *CollyCrawler {
+type Config struct {
+	MaxDepth     int
+	Parallelism  int
+	RandomDelay  time.Duration
+	AllowedHosts []string
+}
+
+func NewConfig() *Config {
+	return &Config{
+		MaxDepth:     3,
+		Parallelism:  2,
+		RandomDelay:  5 * time.Second,
+		AllowedHosts: []string{"*"},
+	}
+}
+
+// New creates a new CollyCrawler with dependencies injected by fx
+func New(
+	engine engine.SearchEngine,
+	config *Config,
+) *CollyCrawler {
 	c := colly.NewCollector(
-		colly.MaxDepth(3),
+		colly.MaxDepth(config.MaxDepth),
 		colly.Async(true),
 	)
 
 	c.Limit(&colly.LimitRule{
 		DomainGlob:  "*",
-		Parallelism: 2,
-		RandomDelay: 5 * time.Second,
+		Parallelism: config.Parallelism,
+		RandomDelay: config.RandomDelay,
 	})
 
 	return &CollyCrawler{
 		collector: c,
-		engine:    searchEngine,
+		engine:    engine,
+		config:    config,
 	}
 }
 

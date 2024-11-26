@@ -79,9 +79,13 @@ func NewApplication(
 
 // Run starts the application
 func (app *Application) Run(ctx context.Context) error {
-	// Use the config's StartURL instead of hardcoding
-	if err := app.crawler.Crawl(app.config.StartURL); err != nil {
-		return err
+	// Create a context with timeout
+	crawlCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	// Use the config's StartURL with context
+	if err := app.crawler.Crawl(crawlCtx, app.config.StartURL); err != nil {
+		return fmt.Errorf("crawl failed: %w", err)
 	}
 	return nil
 }

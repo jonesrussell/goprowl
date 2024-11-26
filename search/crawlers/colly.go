@@ -1,6 +1,7 @@
 package crawlers
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/url"
@@ -29,6 +30,7 @@ type Config struct {
 	RandomDelay    time.Duration
 	AllowedHosts   []string
 	FollowExternal bool
+	CrawlTimeout   time.Duration
 }
 
 func NewConfig() *Config {
@@ -38,6 +40,7 @@ func NewConfig() *Config {
 		RandomDelay:    5 * time.Second,
 		AllowedHosts:   []string{"*"},
 		FollowExternal: false,
+		CrawlTimeout:   30 * time.Second,
 	}
 }
 
@@ -73,7 +76,7 @@ func New(
 	}
 }
 
-func (c *CollyCrawler) Crawl(url string) error {
+func (c *CollyCrawler) Crawl(ctx context.Context, url string) error {
 	log.Printf("Starting crawl of: %s", url)
 
 	// Parse the starting URL to get the domain
@@ -132,16 +135,48 @@ func (c *CollyCrawler) Crawl(url string) error {
 		log.Printf("Error crawling %s: %v", r.Request.URL, err)
 	})
 
-	// Start the crawl
-	err = c.collector.Visit(url)
-	if err != nil {
-		return err
+	// Create a done channel for graceful shutdown
+	done := make(chan bool)
+	var crawlErr error
+
+	go func() {
+		defer close(done)
+		// Create a new context for colly
+		collyCtx := colly.NewContext()
+
+		// Create request with all required parameters
+		request := c.collector.Request(
+			"GET",
+			url,
+			nil,      // io.Reader for request body
+			collyCtx, // colly context
+			nil,      // http.Header
+		)
+		if request == nil {
+			crawlErr = fmt.Errorf("failed to create request")
+			return
+		}
+
+		// Execute the request using Visit instead of Do
+		if err := c.collector.Visit(url); err != nil {
+			crawlErr = err
+			return
+		}
+
+		c.collector.Wait()
+	}()
+
+	// Wait for either context cancellation or crawl completion
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("crawl interrupted: %w", ctx.Err())
+	case <-done:
+		if crawlErr != nil {
+			return fmt.Errorf("crawl error: %w", crawlErr)
+		}
+		log.Printf("Crawl completed for: %s", url)
+		return nil
 	}
-
-	c.collector.Wait()
-	log.Printf("Crawl completed for: %s", url)
-
-	return nil
 }
 
 // Helper function to extract domain from URL

@@ -2,6 +2,7 @@ Always use the project's import path github.com/jonesrussell/goprowl
 Always implement proper interface abstractions following Go best practices
 Always use uber-fx for dependency injection and application lifecycle management
 Utilize colly/v2 for web crawling
+Always use bleve/v2 for search engine functionality
 Always use sync.RWMutex for concurrent operations in storage implementations
 Always implement proper error handling and avoid panics
 Always use context.Context for cancellation and timeouts

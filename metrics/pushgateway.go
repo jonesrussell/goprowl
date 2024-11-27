@@ -113,8 +113,9 @@ func (c *pushGatewayClientImpl) Push(ctx context.Context) error {
 		return ctx.Err()
 	default:
 		if err := c.pusher.Push(); err != nil {
-			c.logger.Error("failed to push metrics", zap.Error(err))
-			return fmt.Errorf("failed to push metrics: %w", err)
+			c.logger.Debug("failed to push metrics to Pushgateway (optional)",
+				zap.Error(err))
+			return nil
 		}
 		c.logger.Debug("successfully pushed metrics to Pushgateway")
 		return nil

@@ -20,9 +20,10 @@ import (
 
 // CrawlOptions holds the command-line options for the crawl command
 type CrawlOptions struct {
-	url   string
-	depth int
-	debug bool
+	url     string
+	depth   int
+	debug   bool
+	timeout time.Duration
 }
 
 // NewCrawlCmd creates the 'crawl' command.
@@ -40,6 +41,7 @@ func NewCrawlCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&opts.url, "url", "u", "", "Starting URL for crawling (required)")
 	cmd.Flags().IntVarP(&opts.depth, "depth", "d", 1, "Maximum crawl depth")
 	cmd.Flags().BoolVarP(&opts.debug, "debug", "v", false, "Enable debug logging")
+	cmd.Flags().DurationVarP(&opts.timeout, "timeout", "t", 5*time.Minute, "Crawl timeout duration")
 	cmd.MarkFlagRequired("url")
 
 	return cmd
@@ -49,7 +51,7 @@ func NewCrawlCmd() *cobra.Command {
 func runCrawl(ctx context.Context, opts *CrawlOptions) error {
 	app := createApp(opts)
 
-	startCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	startCtx, cancel := context.WithTimeout(ctx, opts.timeout)
 	defer cancel()
 
 	if err := app.Start(startCtx); err != nil {
@@ -98,11 +100,18 @@ func createApp(opts *CrawlOptions) *fx.App {
 		) error {
 			lifecycle.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
-					logger.Info("starting crawler", zap.String("url", opts.url), zap.Int("depth", opts.depth))
+					logger.Info("starting crawler",
+						zap.String("url", opts.url),
+						zap.Int("depth", opts.depth))
 
 					go func() {
-						if err := crawler.CrawlWithHandler(ctx, opts.url, opts.depth, storageAdapter.HandleCrawledPage); err != nil {
+						err := crawler.CrawlWithHandler(ctx, opts.url, opts.depth, storageAdapter.HandleCrawledPage)
+						if err != nil && err != context.DeadlineExceeded {
 							logger.Error("crawler failed", zap.Error(err))
+						} else {
+							logger.Info("crawler completed",
+								zap.String("status", "success"),
+								zap.Error(err)) // Will show deadline if that was the cause
 						}
 
 						if err := shutdowner.Shutdown(); err != nil {

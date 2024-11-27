@@ -1,0 +1,80 @@
+# https://taskfile.dev
+
+version: '3'
+
+vars:
+  BINARY_NAME: goprowl
+  BUILD_DIR: build
+  MAIN_PATH: .
+  PORT: 8085
+
+tasks:
+  default:
+    cmds:
+      - task --list-all
+    silent: true
+
+  dev:
+    desc: Run the server in development mode with air
+    cmds:
+      - air -- serve -p {{.PORT}}
+    env:
+      APP_ENV: development
+      GO111MODULE: on
+    sources:
+      - '**/*.go'
+    generates:
+      - tmp/main
+    method: none
+    silent: true
+
+  install-tools:
+    desc: Install development tools
+    cmds:
+      - go install github.com/cosmtrek/air@latest
+      - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+    status:
+      - which air
+      - which golangci-lint
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run
+    sources:
+      - '**/*.go'
+    method: none
+
+  build:
+    desc: Build the application
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -o {{.BUILD_DIR}}/{{.BINARY_NAME}} {{.MAIN_PATH}}
+    sources:
+      - '**/*.go'
+    generates:
+      - '{{.BUILD_DIR}}/{{.BINARY_NAME}}'
+    method: timestamp
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -rf {{.BUILD_DIR}}
+      - rm -rf tmp/
+
+  test:
+    desc: Run tests
+    cmds:
+      - go test -v ./...
+    sources:
+      - '**/*.go'
+    method: none
+
+  serve:
+    desc: Run the server in production mode
+    cmds:
+      - ./{{.BUILD_DIR}}/{{.BINARY_NAME}} serve -p {{.PORT}}
+    deps:
+      - build
+    env:
+      APP_ENV: production

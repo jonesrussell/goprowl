@@ -113,10 +113,6 @@ func Execute() error {
 
 		// Configure error handling
 		fx.NopLogger,
-
-		fx.Provide(
-			metrics.NewPushGatewayClient,
-		),
 	)
 
 	// Start the application

@@ -49,7 +49,7 @@ type MetricsCollector struct {
 	// Add other application metrics here
 }
 
-func NewMetricsCollector(config Config, logger *zap.Logger) (*MetricsCollector, error) {
+func NewMetricsCollector(config Config, logger *zap.Logger, registry *prometheus.Registry) (*MetricsCollector, error) {
 	collectorMu.Lock()
 	defer collectorMu.Unlock()
 
@@ -59,7 +59,6 @@ func NewMetricsCollector(config Config, logger *zap.Logger) (*MetricsCollector, 
 
 	logger.Info("initializing metrics collector")
 
-	registry := prometheus.NewRegistry()
 	collector = &MetricsCollector{
 		pushgateway: config.PushgatewayURL,
 		logger:      logger,
@@ -143,9 +142,6 @@ func NewMetricsCollector(config Config, logger *zap.Logger) (*MetricsCollector, 
 		return nil, fmt.Errorf("failed to register metrics: %w", err)
 	}
 
-	prometheus.DefaultRegisterer = registry
-	prometheus.DefaultGatherer = registry
-
 	logger.Info("metrics collector initialized successfully")
 	return collector, nil
 }
@@ -212,4 +208,12 @@ func (c *MetricsCollector) GetPagesProcessed(componentID string) float64 {
 // GetComponentMetrics creates a new ComponentMetrics instance
 func (c *MetricsCollector) GetComponentMetrics(componentType string) *ComponentMetrics {
 	return NewComponentMetrics(c, componentType)
+}
+
+// RegisterMetric registers a new metric with the collector
+func (c *MetricsCollector) RegisterMetric(metric prometheus.Collector) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return prometheus.Register(metric)
 }

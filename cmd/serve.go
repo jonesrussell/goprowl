@@ -39,15 +39,23 @@ func NewServeCmd() *cobra.Command {
 			signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 			app := fx.New(
-				NewLoggerModule(),
+				fx.Provide(func() (*zap.Logger, error) {
+					config := zap.NewDevelopmentConfig()
+					if debug {
+						config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
+					}
+					return config.Build()
+				}),
 				app.Module,
 				metrics.Module,
 				fx.Invoke(func(lifecycle fx.Lifecycle, logger *zap.Logger, registry *prometheus.Registry) {
+					logger.Debug("initialized metrics registry")
+
 					mux := http.NewServeMux()
 
 					// Register all handlers
 					metrics.RegisterDashboard(mux)
-					mux.Handle("/metrics", promhttp.Handler())
+					mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
 					mux.HandleFunc("/api/v1/query", func(w http.ResponseWriter, r *http.Request) {
 						query := r.URL.Query().Get("query")
 						if query == "" {
@@ -55,12 +63,18 @@ func NewServeCmd() *cobra.Command {
 							return
 						}
 
+						logger.Debug("processing query",
+							zap.String("query", query))
+
 						registryMetrics, err := registry.Gather()
 						if err != nil {
 							logger.Error("Failed to gather metrics", zap.Error(err))
 							http.Error(w, "internal server error", http.StatusInternalServerError)
 							return
 						}
+
+						logger.Debug("gathered metrics",
+							zap.Int("count", len(registryMetrics)))
 
 						var result []struct {
 							Metric map[string]string `json:"metric"`
@@ -71,12 +85,17 @@ func NewServeCmd() *cobra.Command {
 
 						for _, mf := range registryMetrics {
 							metricName := *mf.Name
-							if strings.Contains(metricName, query) {
+							if matchesQuery(metricName, query) {
+								logger.Debug("found matching metric",
+									zap.String("metric", metricName))
+
 								for _, m := range mf.Metric {
 									labels := make(map[string]string)
 									for _, l := range m.Label {
 										labels[*l.Name] = *l.Value
 									}
+
+									labels["__name__"] = metricName
 
 									var value float64
 									switch {
@@ -101,6 +120,9 @@ func NewServeCmd() *cobra.Command {
 								}
 							}
 						}
+
+						logger.Debug("query results",
+							zap.Int("count", len(result)))
 
 						response := metrics.QueryResponse{
 							Status: "success",
@@ -225,4 +247,9 @@ func NewServeCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&debug, "debug", "v", false, "Enable debug logging")
 
 	return cmd
+}
+
+func matchesQuery(metricName, query string) bool {
+	queryName := strings.Split(query, "{")[0]
+	return strings.Contains(metricName, queryName)
 }

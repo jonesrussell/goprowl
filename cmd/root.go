@@ -44,7 +44,6 @@ func NewLoggerModule() fx.Option {
 	return fx.Module("logger",
 		fx.Provide(
 			func() (*zap.Logger, error) {
-				// Check if debug flag is set via cobra command
 				debug := false
 				if cmd := GetRootCmd(); cmd != nil {
 					debug, _ = cmd.Flags().GetBool("debug")
@@ -52,27 +51,19 @@ func NewLoggerModule() fx.Option {
 
 				var config zap.Config
 				if debug {
-					// Debug configuration with more details
 					config = zap.NewDevelopmentConfig()
-					config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
+					config.Level.SetLevel(zap.DebugLevel)
 					config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-					config.EncoderConfig.TimeKey = "ts"
-					config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 				} else {
-					// Production configuration
 					config = zap.NewProductionConfig()
-					config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
+					config.Level.SetLevel(zap.InfoLevel)
 				}
-
-				config.OutputPaths = []string{"stdout"}
-				config.ErrorOutputPaths = []string{"stderr"}
 
 				logger, err := config.Build()
 				if err != nil {
 					return nil, fmt.Errorf("failed to create logger: %w", err)
 				}
 				globalLogger = logger
-				zap.ReplaceGlobals(logger)
 				return logger, nil
 			},
 		),

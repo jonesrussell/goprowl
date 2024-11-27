@@ -67,16 +67,10 @@ func runCrawl(ctx context.Context, opts *CrawlOptions) error {
 
 // createApp initializes the fx application with the necessary modules and config.
 func createApp(opts *CrawlOptions) *fx.App {
-	// Set logging level based on debug flag
-	logLevel := zap.WarnLevel
-	if opts.debug {
-		logLevel = zap.DebugLevel
-	}
-
 	options := []fx.Option{
 		fx.WithLogger(func(log *zap.Logger) fxevent.Logger {
 			return &fxevent.ZapLogger{
-				Logger: log.WithOptions(zap.IncreaseLevel(logLevel)),
+				Logger: log.Named("fx"),
 			}
 		}),
 		NewLoggerModule(),
@@ -125,7 +119,6 @@ func createApp(opts *CrawlOptions) *fx.App {
 		}),
 	}
 
-	// Only add NopLogger in non-debug mode
 	if !opts.debug {
 		options = append(options, fx.NopLogger)
 	}

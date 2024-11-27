@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"go.uber.org/fx"
 )
 
@@ -21,24 +22,33 @@ const (
 	OptionalTrueTag = `optional:"true"`
 )
 
+// Modify the registry provider to register metrics
+func NewRegistry() *prometheus.Registry {
+	// Create a new registry
+	registry := prometheus.NewRegistry()
+	if registry == nil {
+		panic("failed to create prometheus registry")
+	}
+
+	// Only register the Go and Process collectors
+	registry.MustRegister(collectors.NewGoCollector())
+	registry.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+
+	return registry
+}
+
 // Module initializes the metrics collection module
 var Module = fx.Module("metrics",
 	fx.Provide(
-		// Annotate the NewDefaultConfig function to make it optional for override
+		NewDefaultConfig,
+		NewRegistry,
 		fx.Annotate(
-			NewDefaultConfig,
-			fx.ResultTags(OptionalTrueTag), // Mark as optional to allow override
+			NewMetricsCollector,
+			fx.ParamTags(``, ``, `name:"metrics_registry"`),
 		),
-		NewMetricsCollector,
-		// Provide a new ComponentMetrics instance
-		func(collector *MetricsCollector) *ComponentMetrics {
-			return NewComponentMetrics(collector, "goprowl")
-		},
-		NewPushGatewayClient,
-		// Provide a new prometheus Registry
-		func() *prometheus.Registry {
-			return prometheus.NewRegistry()
-		},
-		NewMetricsServer,
+		fx.Annotate(
+			NewComponentMetrics,
+			fx.As(new(ComponentMetricsProvider)),
+		),
 	),
 )

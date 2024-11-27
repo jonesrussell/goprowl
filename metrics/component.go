@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 )
 
@@ -164,4 +165,76 @@ func (m *ComponentMetrics) ResetActiveRequests() {
 		zap.String("component_id", m.componentID),
 		zap.String("component_type", m.componentType))
 	m.collector.totalActiveRequests.Reset()
+}
+
+// IncrementErrorCountWithLabel increments the error count metric with a single label
+func (m *ComponentMetrics) IncrementErrorCountWithLabel(label string) {
+	m.collector.mu.Lock()
+	defer m.collector.mu.Unlock()
+	m.collector.logger.Debug("incrementing error count with label",
+		zap.String("component_id", m.componentID),
+		zap.String("component_type", m.componentType),
+		zap.String("label", label))
+	m.collector.totalErrors.WithLabelValues(label).Inc()
+}
+
+// Counter returns or creates a new counter metric
+func (m *ComponentMetrics) Counter(name, help string, labelNames ...string) *prometheus.Counter {
+	counter := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: name,
+		Help: help,
+		ConstLabels: prometheus.Labels{
+			"component_id":   m.componentID,
+			"component_type": m.componentType,
+		},
+	})
+
+	if err := m.collector.RegisterMetric(counter); err != nil {
+		m.collector.logger.Error("failed to register counter metric",
+			zap.String("name", name),
+			zap.Error(err))
+	}
+
+	return &counter
+}
+
+// Gauge returns or creates a new gauge metric
+func (m *ComponentMetrics) Gauge(name, help string, labelNames ...string) *prometheus.Gauge {
+	gauge := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: name,
+		Help: help,
+		ConstLabels: prometheus.Labels{
+			"component_id":   m.componentID,
+			"component_type": m.componentType,
+		},
+	})
+
+	if err := m.collector.RegisterMetric(gauge); err != nil {
+		m.collector.logger.Error("failed to register gauge metric",
+			zap.String("name", name),
+			zap.Error(err))
+	}
+
+	return &gauge
+}
+
+// Histogram returns or creates a new histogram metric
+func (m *ComponentMetrics) Histogram(name, help string, buckets []float64, labelNames ...string) *prometheus.Histogram {
+	histogram := prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    name,
+		Help:    help,
+		Buckets: buckets,
+		ConstLabels: prometheus.Labels{
+			"component_id":   m.componentID,
+			"component_type": m.componentType,
+		},
+	})
+
+	if err := m.collector.RegisterMetric(histogram); err != nil {
+		m.collector.logger.Error("failed to register histogram metric",
+			zap.String("name", name),
+			zap.Error(err))
+	}
+
+	return &histogram
 }

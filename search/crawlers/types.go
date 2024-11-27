@@ -9,10 +9,7 @@ import (
 type Crawler interface {
 	// Crawl starts crawling from the given URL up to specified depth
 	Crawl(ctx context.Context, startURL string, depth int) error
-	GetStatus() *CrawlStatus
-	// Optional: Add pause/resume functionality
-	// Pause() error
-	// Resume() error
+	GetID() string
 }
 
 // CrawlResult represents the result of a crawl operation

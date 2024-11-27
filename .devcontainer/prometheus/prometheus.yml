@@ -1,9 +1,40 @@
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+  scrape_timeout: 10s
+
+# Alertmanager configuration (optional, but recommended)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Rule files (optional, for alerting)
+rule_files:
+  - "rules/crawler_alerts.yml"
 
 scrape_configs:
   - job_name: 'goprowl'
+    metrics_path: '/metrics'
+    scheme: 'http'
     static_configs:
-      - targets: ['app:2112']  # Default Prometheus metrics port
+      - targets: ['app:2112']
+    scrape_interval: 5s
+    scrape_timeout: 4s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: '${1}'
+      - target_label: environment
+        replacement: 'development'
+    metric_relabel_configs:
+      - source_labels: [crawler_id]
+        target_label: crawler
+        regex: '(.*)'
+        replacement: '${1}'
 
+  # Health monitoring for Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/jonesrussell/goprowl/internal/app"
+	"github.com/jonesrussell/goprowl/metrics"
 	"github.com/jonesrussell/goprowl/search/crawlers"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
@@ -25,7 +26,12 @@ func NewCrawlCmd() *cobra.Command {
 					URL:      url,
 					MaxDepth: depth,
 				}),
+				fx.Supply(metrics.Config{
+					PushgatewayURL: "http://localhost:9091",
+				}),
+				metrics.Module,
 				app.Module,
+				crawlers.Module,
 				fx.Invoke(func(crawler crawlers.Crawler) error {
 					fmt.Printf("Starting crawl of %s with depth %d\n", url, depth)
 					return crawler.Crawl(cmd.Context(), url, depth)

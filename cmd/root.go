@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/jonesrussell/goprowl/internal/app"
+	"github.com/jonesrussell/goprowl/metrics"
 	"github.com/jonesrussell/goprowl/search/crawlers"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
@@ -56,12 +57,10 @@ func Execute() error {
 // Module provides root command dependencies
 var Module = fx.Module("root",
 	app.Module,
+	metrics.Module,
 	fx.Provide(
 		NewRootCommand,
-	),
-	fx.Provide(
 		crawlers.ProvideDefaultConfigOptions,
-		crawlers.NewConfig,
 		fx.Annotate(
 			crawlers.NewCrawlerFromConfig,
 			fx.As(new(crawlers.Crawler)),

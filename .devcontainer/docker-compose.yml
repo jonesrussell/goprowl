@@ -4,23 +4,15 @@ services:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - ../..:/workspaces:cached
+      - ../:/workspaces/goprowl:cached
     command: sleep infinity
-
-  redis:
-    image: docker.io/bitnami/redis:7.4
-    environment:
-      - ALLOW_EMPTY_PASSWORD=yes
-      - REDIS_DISABLE_COMMANDS=FLUSHDB,FLUSHALL
     ports:
-      - '6380:6379'
-    volumes:
-      - 'redis_data:/bitnami/redis/data'
+      - "2112:2112"
+    networks:
+      - goprowl
 
   prometheus:
     image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
     volumes:
       - ./prometheus:/etc/prometheus
       - prometheus_data:/prometheus
@@ -29,9 +21,14 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - "9090:9090"
+    networks:
+      - goprowl
+
+networks:
+  goprowl:
+    driver: bridge
 
 volumes:
-  redis_data:
-    driver: local
   prometheus_data:
-    driver: local

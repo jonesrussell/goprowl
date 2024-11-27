@@ -1,7 +1,6 @@
 package app
 
 import (
-	"github.com/jonesrussell/goprowl/search/crawlers"
 	"github.com/jonesrussell/goprowl/search/engine"
 	"github.com/jonesrussell/goprowl/search/storage"
 	"github.com/jonesrussell/goprowl/search/storage/bleve"
@@ -20,7 +19,6 @@ func DefaultConfig() *Config {
 var Module = fx.Options(
 	StorageModule,
 	EngineModule,
-	CrawlerModule,
 	fx.Provide(
 		DefaultConfig,
 		NewApplication,
@@ -42,15 +40,4 @@ var StorageModule = fx.Options(
 // EngineModule provides search engine dependencies
 var EngineModule = fx.Options(
 	fx.Provide(engine.New),
-)
-
-// CrawlerModule provides crawler dependencies
-var CrawlerModule = fx.Options(
-	fx.Provide(
-		crawlers.NewConfig,
-		fx.Annotate(
-			crawlers.NewCrawlerFromConfig,
-			fx.As(new(crawlers.Crawler)),
-		),
-	),
 )

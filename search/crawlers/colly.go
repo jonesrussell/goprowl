@@ -114,6 +114,16 @@ func (c *CollyCrawler) Crawl(ctx context.Context, startURL string, depth int) er
 
 // CrawlWithHandler implements the Crawler interface
 func (c *CollyCrawler) CrawlWithHandler(ctx context.Context, startURL string, depth int, handler PageHandler) error {
+	// Start request tracking
+	if err := c.pushgateway.StartRequest(c.id); err != nil {
+		c.logger.Error("failed to track request start", zap.Error(err))
+	}
+	defer func() {
+		if err := c.pushgateway.EndRequest(c.id); err != nil {
+			c.logger.Error("failed to track request end", zap.Error(err))
+		}
+	}()
+
 	c.startTime = time.Now()
 
 	c.logger.Info("starting crawl with handler",
@@ -137,9 +147,11 @@ func (c *CollyCrawler) CrawlWithHandler(ctx context.Context, startURL string, de
 
 	// Configure collector callbacks for handling pages
 	c.collector.OnHTML("html", func(e *colly.HTMLElement) {
+		c.pagesVisited++
 		result := &CrawlResult{
-			URL:       e.Request.URL.String(),
-			Title:     e.ChildText("title"),
+			URL:   e.Request.URL.String(),
+			Title: e.ChildText("title"),
+
 			Content:   e.Text,
 			Links:     e.ChildAttrs("a[href]", "href"),
 			CreatedAt: time.Now().Format(time.RFC3339),
@@ -182,18 +194,16 @@ func (c *CollyCrawler) CrawlWithHandler(ctx context.Context, startURL string, de
 	select {
 	case <-done:
 		duration := time.Since(c.startTime)
-		err := c.pushgateway.RecordCrawlCompletion(
+		err := c.pushgateway.RecordCrawlMetrics(
 			ctx,
 			c.id,
-			"completed",
 			startURL,
+			"completed",
 			duration,
 			c.pagesVisited,
 		)
 		if err != nil {
-			c.logger.Error("failed to push completion metrics",
-				zap.Error(err),
-			)
+			c.logger.Error("failed to push metrics", zap.Error(err))
 		}
 
 		c.logger.Info("crawl completed successfully",

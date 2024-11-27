@@ -10,7 +10,7 @@ import (
 // Provide default config if none is supplied
 func NewDefaultConfig() Config {
 	return Config{
-		PushgatewayURL: "http://localhost:9091",
+		PushgatewayURL: "pushgateway:9091",
 		PushInterval:   15 * time.Second,
 	}
 }

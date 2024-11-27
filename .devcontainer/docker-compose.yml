@@ -6,8 +6,6 @@ services:
     volumes:
       - ../:/workspaces/goprowl:cached
     command: sleep infinity
-    ports:
-      - "2112:2112"
     networks:
       - goprowl
 

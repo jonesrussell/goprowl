@@ -8,11 +8,15 @@ import (
 
 var Module = fx.Module("crawlers",
 	fx.Provide(
-		func() *colly.Collector {
-			c := colly.NewCollector(
-				colly.Debugger(&debug.LogDebugger{}),
-			)
-			return c
+		func(cfg *Config) *colly.Collector {
+			opts := []colly.CollectorOption{}
+
+			// Only add debug logger if debug mode is enabled
+			if cfg.Debug {
+				opts = append(opts, colly.Debugger(&debug.LogDebugger{}))
+			}
+
+			return colly.NewCollector(opts...)
 		},
 		NewConfig,
 		fx.Annotate(

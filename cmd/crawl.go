@@ -10,6 +10,7 @@ import (
 
 	"github.com/jonesrussell/goprowl/internal/app"
 	"github.com/jonesrussell/goprowl/metrics"
+	"github.com/jonesrussell/goprowl/search/adapters/storage"
 	"github.com/jonesrussell/goprowl/search/crawlers"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
@@ -91,17 +92,24 @@ func createApp(opts *CrawlOptions) *fx.App {
 		metrics.Module,
 		app.Module,
 		crawlers.Module,
+		storage.Module,
 		// Add lifecycle hook to handle crawler completion
-		fx.Invoke(func(lifecycle fx.Lifecycle, shutdowner fx.Shutdowner, crawler crawlers.Crawler, logger *zap.Logger) error {
+		fx.Invoke(func(
+			lifecycle fx.Lifecycle,
+			shutdowner fx.Shutdowner,
+			crawler crawlers.Crawler,
+			storageAdapter *storage.StorageAdapter,
+			logger *zap.Logger,
+		) error {
 			lifecycle.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
 					logger.Info("starting crawler", zap.String("url", opts.url), zap.Int("depth", opts.depth))
 
 					go func() {
-						if err := crawler.Crawl(ctx, opts.url, opts.depth); err != nil {
+						if err := crawler.CrawlWithHandler(ctx, opts.url, opts.depth, storageAdapter.HandleCrawledPage); err != nil {
 							logger.Error("crawler failed", zap.Error(err))
 						}
-						// Signal shutdown after crawler completes
+
 						if err := shutdowner.Shutdown(); err != nil {
 							logger.Error("shutdown failed", zap.Error(err))
 						}

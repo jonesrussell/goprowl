@@ -1,10 +1,11 @@
 package cmd
 
 import (
-	"fmt"
-	"os"
+	"context"
 
+	"github.com/jonesrussell/goprowl/internal/app"
 	"github.com/spf13/cobra"
+	"go.uber.org/fx"
 )
 
 var rootCmd = &cobra.Command{
@@ -15,9 +16,35 @@ that supports full-text search, concurrent crawling, and
 configurable storage backends.`,
 }
 
-func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+func Execute() error {
+	app := fx.New(
+		app.Module,
+		fx.NopLogger,
+	)
+
+	if err := app.Start(context.Background()); err != nil {
+		return err
 	}
+	defer app.Stop(context.Background())
+
+	return rootCmd.Execute()
+}
+
+var Module = fx.Module("root",
+	app.Module,
+)
+
+func Run(fn interface{}) error {
+	app := fx.New(
+		Module,
+		fx.Invoke(fn),
+		fx.NopLogger,
+	)
+
+	if err := app.Start(context.Background()); err != nil {
+		return err
+	}
+	defer app.Stop(context.Background())
+
+	return nil
 }

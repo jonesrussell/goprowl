@@ -6,6 +6,7 @@ package cmd
 import (
 	"log"
 
+	"github.com/jonesrussell/goprowl/internal/app"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 )
@@ -21,17 +22,24 @@ var searchCmd = &cobra.Command{
 - Fuzzy matching: word~2
 - Field search: title:word`,
 	Run: func(cmd *cobra.Command, args []string) {
-		app := fx.New(
-			StorageModule,
-			EngineModule,
-			fx.Provide(NewApplication),
-			fx.Invoke(func(app *Application) {
-				if err := app.Search(query); err != nil {
+		fxApp := fx.New(
+			app.StorageModule,
+			app.EngineModule,
+			app.CrawlerModule,
+			fx.Provide(
+				func() *app.Config {
+					return &app.Config{}
+				},
+				app.NewApplication,
+			),
+			fx.Invoke(func(application *app.Application) {
+				if err := application.Search(query); err != nil {
 					log.Printf("Error searching documents: %v", err)
 				}
 			}),
 		)
-		app.Run()
+
+		fxApp.Run()
 	},
 }
 

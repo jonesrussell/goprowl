@@ -5,7 +5,7 @@ go 1.23.2
 require (
 	github.com/blevesearch/bleve/v2 v2.4.3
 	github.com/gocolly/colly/v2 v2.1.0
-	github.com/spf13/cobra v1.8.0
+	github.com/spf13/cobra v1.8.1
 	go.uber.org/fx v1.23.0
 )
 

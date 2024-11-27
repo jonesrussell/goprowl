@@ -4,6 +4,10 @@ Copyright © 2024 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"context"
+	"log"
+
+	"github.com/jonesrussell/goprowl/internal/app"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 )
@@ -19,22 +23,26 @@ var crawlCmd = &cobra.Command{
 	Long: `Crawl starts from the specified URL and indexes all pages 
 found within the maximum depth limit.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		app := fx.New(
-			StorageModule,
-			EngineModule,
-			CrawlerModule,
+		fxApp := fx.New(
+			app.StorageModule,
+			app.EngineModule,
+			app.CrawlerModule,
 			fx.Provide(
-				func() *Config {
-					return &Config{
+				func() *app.Config {
+					return &app.Config{
 						StartURL: startURL,
 						MaxDepth: maxDepth,
 					}
 				},
-				NewApplication,
+				app.NewApplication,
 			),
-			fx.Invoke(runCrawl),
+			fx.Invoke(func(application *app.Application) {
+				if err := application.Run(context.Background()); err != nil {
+					log.Printf("Error running application: %v", err)
+				}
+			}),
 		)
-		app.Run()
+		fxApp.Run()
 	},
 }
 

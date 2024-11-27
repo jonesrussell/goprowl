@@ -1,7 +1,12 @@
 Always use the project's import path github.com/jonesrussell/goprowl
 Always implement proper interface abstractions following Go best practices
 Always use uber-fx for dependency injection and application lifecycle management
-Utilize colly/v2 for web crawling
+Always integrate uber-fx with Cobra commands properly:
+  - Initialize fx.App in cmd/root.go's Execute() function
+  - Use fx.Module for organizing dependencies
+  - Handle both fx.App and cobra.Command errors appropriately
+
+Utilize github.com/gocolly/colly/v2 for web crawling
 Always use bleve/v2 for search engine functionality
 Always use sync.RWMutex for concurrent operations in storage implementations
 Always implement proper error handling and avoid panics
@@ -16,3 +21,7 @@ The separation of concerns is now:
 search/engine/types.go: Interface and type definitions
 search/engine/query.go: Query parsing and processing
 search/engine/basic_search.go: Search implementation and relevancy calculation
+
+Command structure:
+cmd/root.go: Main application setup and fx integration
+cmd/<command>.go: Individual command implementations

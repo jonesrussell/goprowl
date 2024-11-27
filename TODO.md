@@ -45,12 +45,15 @@
 - [x] Improve error handling
 - [x] Proper configuration management
 - [x] Dependency injection setup
-- [ ] Add crawl status reporting
-- [ ] Add metrics collection
+- [x] Add metrics collection (via metrics.ComponentMetrics)
+- [ ] Enhance crawl status reporting with structured logging
+- [ ] Add detailed metrics dashboard
 - [ ] Implement crawl queue persistence
 - [ ] Add support for sitemap.xml
 - [ ] Implement crawl resumption
 - [ ] Add content hash checking for updates
+- [ ] Add progress reporting via logger
+- [ ] Implement crawl statistics collection
 
 ### 5. API Layer
 - [ ] Design RESTful API endpoints
@@ -70,11 +73,15 @@
 - [ ] Implement pagination
 
 ### 7. Monitoring & Management
-- [x] Add basic logging system
-- [ ] Implement comprehensive metrics collection
-- [ ] Create health checks
+- [x] Add basic logging system (via zap)
+- [x] Implement comprehensive metrics collection (via ComponentMetrics)
+- [x] Create health checks (via fx lifecycle)
 - [ ] Add monitoring endpoints
 - [ ] Create admin interface
+- [ ] Add structured logging throughout application
+- [ ] Implement log levels based on debug flag
+- [ ] Add performance metrics logging
+- [ ] Create metrics visualization
 
 ### 8. Testing
 - [ ] Unit tests for all components

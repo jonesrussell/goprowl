@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jonesrussell/goprowl/internal/app"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
@@ -26,27 +27,27 @@ configurable storage backends.`,
 
 var logger *zap.Logger
 
+// LoggerModule provides the application-wide logger
 func NewLoggerModule() fx.Option {
 	return fx.Module("logger",
 		fx.Provide(
 			func() (*zap.Logger, error) {
-				// Configure production logger
-				logger, err := zap.NewProduction()
-				if err != nil {
-					return nil, fmt.Errorf("failed to create logger: %w", err)
-				}
-				return logger, nil
+				config := zap.NewProductionConfig()
+				config.OutputPaths = []string{"stdout"}
+				config.ErrorOutputPaths = []string{"stderr"}
+				return config.Build()
 			},
 		),
 	)
 }
 
 func Execute() error {
-	// Create fx application
+	// Create fx application with logger module
 	app := fx.New(
 		NewLoggerModule(),
+		app.Module, // This will now receive the logger through DI
 		fx.Invoke(func(log *zap.Logger) {
-			logger = log // Store logger in package variable
+			logger = log // Store logger in package variable for root command
 		}),
 	)
 

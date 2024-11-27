@@ -95,7 +95,20 @@ func (c *CollyCrawler) GetID() string {
 
 // Crawl implements the Crawler interface
 func (c *CollyCrawler) Crawl(ctx context.Context, startURL string, depth int) error {
-	c.logger.Info("starting crawl",
+	// Create a default handler that just logs
+	defaultHandler := func(ctx context.Context, result *CrawlResult) error {
+		c.logger.Info("crawled page",
+			zap.String("url", result.URL),
+			zap.String("title", result.Title))
+		return nil
+	}
+
+	return c.CrawlWithHandler(ctx, startURL, depth, defaultHandler)
+}
+
+// CrawlWithHandler implements the Crawler interface
+func (c *CollyCrawler) CrawlWithHandler(ctx context.Context, startURL string, depth int, handler PageHandler) error {
+	c.logger.Info("starting crawl with handler",
 		zap.String("crawler_id", c.id),
 		zap.String("url", startURL),
 		zap.Int("depth", depth),
@@ -113,9 +126,28 @@ func (c *CollyCrawler) Crawl(ctx context.Context, startURL string, depth int) er
 
 	// Allow the domain we're crawling
 	c.collector.AllowedDomains = []string{parsedURL.Host}
-	c.logger.Info("set allowed domain",
-		zap.String("domain", parsedURL.Host),
-	)
+
+	// Configure collector callbacks for handling pages
+	c.collector.OnHTML("html", func(e *colly.HTMLElement) {
+		result := &CrawlResult{
+			URL:       e.Request.URL.String(),
+			Title:     e.ChildText("title"),
+			Content:   e.Text,
+			Links:     e.ChildAttrs("a[href]", "href"),
+			CreatedAt: time.Now().Format(time.RFC3339),
+		}
+
+		c.logger.Debug("processing page",
+			zap.String("url", result.URL),
+			zap.String("title", result.Title),
+			zap.Int("links_count", len(result.Links)))
+
+		if err := handler(ctx, result); err != nil {
+			c.logger.Error("handler failed",
+				zap.String("url", result.URL),
+				zap.Error(err))
+		}
+	})
 
 	// Configure parallel requests using config values
 	c.collector.Limit(&colly.LimitRule{
@@ -124,7 +156,6 @@ func (c *CollyCrawler) Crawl(ctx context.Context, startURL string, depth int) er
 		RandomDelay: c.cfg.RequestDelay,
 	})
 
-	c.logger.Info("initiating crawl")
 	if err = c.collector.Visit(startURL); err != nil {
 		c.logger.Error("failed to start crawl",
 			zap.String("url", startURL),

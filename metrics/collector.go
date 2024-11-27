@@ -32,6 +32,13 @@ type MetricsCollector struct {
 	listOperationErrors   *prometheus.CounterVec
 	indexedDocuments      *prometheus.GaugeVec
 
+	// New detailed metrics
+	crawlDuration *prometheus.HistogramVec
+	pageDepth     *prometheus.HistogramVec
+	contentTypes  *prometheus.CounterVec
+	statusCodes   *prometheus.CounterVec
+	linkCount     *prometheus.HistogramVec
+
 	// Add other application metrics here
 }
 
@@ -81,6 +88,44 @@ func NewMetricsCollector(config Config) (*MetricsCollector, error) {
 			Name: "goprowl_indexed_documents_total",
 			Help: "Total number of indexed documents",
 		}, []string{"component_id"}),
+		crawlDuration: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "goprowl_crawl_duration_seconds",
+				Help:    "Duration of crawl operations",
+				Buckets: prometheus.ExponentialBuckets(1, 2, 10),
+			},
+			[]string{"component_id"},
+		),
+		pageDepth: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "goprowl_page_depth",
+				Help:    "Depth of crawled pages",
+				Buckets: []float64{1, 2, 3, 4, 5, 10},
+			},
+			[]string{"component_id"},
+		),
+		contentTypes: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "goprowl_content_types_total",
+				Help: "Count of different content types encountered",
+			},
+			[]string{"component_id", "content_type"},
+		),
+		statusCodes: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "goprowl_status_codes_total",
+				Help: "Count of HTTP status codes",
+			},
+			[]string{"component_id", "code"},
+		),
+		linkCount: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "goprowl_links_per_page",
+				Help:    "Number of links found per page",
+				Buckets: prometheus.LinearBuckets(0, 10, 10),
+			},
+			[]string{"component_id"},
+		),
 	}
 
 	// Register metrics with prometheus only once
@@ -106,6 +151,11 @@ func NewMetricsCollector(config Config) (*MetricsCollector, error) {
 			collector.listOperationDuration,
 			collector.listOperationErrors,
 			collector.indexedDocuments,
+			collector.crawlDuration,
+			collector.pageDepth,
+			collector.contentTypes,
+			collector.statusCodes,
+			collector.linkCount,
 		)
 	})
 

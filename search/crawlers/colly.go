@@ -114,6 +114,37 @@ func (c *CollyCrawler) Crawl(ctx context.Context, startURL string, depth int) er
 
 // CrawlWithHandler implements the Crawler interface
 func (c *CollyCrawler) CrawlWithHandler(ctx context.Context, startURL string, depth int, handler PageHandler) error {
+	c.startTime = time.Now()
+
+	// Add structured crawl status logging
+	statusLogger := c.logger.With(
+		zap.String("crawler_id", c.id),
+		zap.String("url", startURL),
+		zap.Int("depth", depth),
+	)
+
+	// Log initial crawl status
+	statusLogger.Info("crawl started",
+		zap.Time("start_time", c.startTime),
+		zap.Int("target_depth", depth))
+
+	// Add periodic status updates
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				statusLogger.Info("crawl status update",
+					zap.Int("pages_visited", c.pagesVisited),
+					zap.Duration("elapsed_time", time.Since(c.startTime)))
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
 	// Start request tracking
 	if err := c.pushgateway.StartRequest(c.id); err != nil {
 		c.logger.Error("failed to track request start", zap.Error(err))
@@ -123,14 +154,6 @@ func (c *CollyCrawler) CrawlWithHandler(ctx context.Context, startURL string, de
 			c.logger.Error("failed to track request end", zap.Error(err))
 		}
 	}()
-
-	c.startTime = time.Now()
-
-	c.logger.Info("starting crawl with handler",
-		zap.String("crawler_id", c.id),
-		zap.String("url", startURL),
-		zap.Int("depth", depth),
-	)
 
 	// Verify URL is valid
 	parsedURL, err := url.Parse(startURL)

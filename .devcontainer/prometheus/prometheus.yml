@@ -15,11 +15,6 @@ rule_files:
   - "rules/crawler_alerts.yml"
 
 scrape_configs:
-  # Health monitoring for Prometheus itself
-  - job_name: 'prometheus'
-    static_configs:
-      - targets: ['localhost:9090']
-
   # Pushgateway scraping configuration
   - job_name: 'pushgateway'
     honor_labels: true
@@ -27,6 +22,16 @@ scrape_configs:
       - targets: ['pushgateway:9091']
     metrics_path: /metrics
     scrape_interval: 5s
+
+  # Health monitoring for Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Your existing configs...
+  - job_name: 'goprowl'
+    static_configs:
+      - targets: ['pushgateway:9091']
     metric_relabel_configs:
       - source_labels: [crawler_id]
         target_label: crawler

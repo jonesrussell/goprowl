@@ -37,22 +37,6 @@ func Execute() error {
 		cancel()
 	}()
 
-	// Create the application
-	application := fx.New(
-		app.Module,
-		fx.NopLogger,
-	)
-
-	// Start the application
-	if err := application.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start application: %w", err)
-	}
-	defer func() {
-		if err := application.Stop(ctx); err != nil {
-			fmt.Printf("Error stopping application: %v\n", err)
-		}
-	}()
-
 	// Add commands
 	rootCmd.AddCommand(
 		NewCrawlCmd(),
@@ -68,30 +52,20 @@ func Execute() error {
 	return nil
 }
 
-// Run executes a function with dependency injection
-func Run(fn interface{}) error {
-	application := fx.New(
-		app.Module,
-		fx.Invoke(fn),
-		fx.NopLogger,
-	)
-
-	// Start the application with context
-	ctx := context.Background()
-	if err := application.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start application: %w", err)
-	}
-
-	// Ensure application is stopped
-	defer func() {
-		if err := application.Stop(ctx); err != nil {
-			fmt.Printf("Error stopping application: %v\n", err)
-		}
-	}()
-
-	return nil
-}
-
+// Module provides root command dependencies
 var Module = fx.Module("root",
 	app.Module,
+	fx.Provide(
+		NewRootCommand,
+	),
 )
+
+type RootCommand struct {
+	app *app.Application
+}
+
+func NewRootCommand(app *app.Application) *RootCommand {
+	return &RootCommand{
+		app: app,
+	}
+}

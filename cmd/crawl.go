@@ -4,10 +4,12 @@ Copyright © 2024 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
-	"context"
+	"fmt"
 
+	"github.com/jonesrussell/goprowl/internal/app"
 	"github.com/jonesrussell/goprowl/search/crawlers"
 	"github.com/spf13/cobra"
+	"go.uber.org/fx"
 )
 
 type crawlOptions struct {
@@ -23,9 +25,14 @@ func NewCrawlCmd() *cobra.Command {
 		Short: "Start crawling from a given URL",
 		Long:  `Crawl a website starting from the specified URL up to the given depth.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return Run(func(crawler crawlers.Crawler) error {
-				return crawler.Crawl(context.Background(), opts.url, opts.depth)
-			})
+			return fx.New(
+				app.Module,
+				fx.Invoke(func(crawler crawlers.Crawler) error {
+					fmt.Printf("Starting crawl of %s with depth %d\n", opts.url, opts.depth)
+					return crawler.Crawl(cmd.Context(), opts.url, opts.depth)
+				}),
+				fx.NopLogger,
+			).Start(cmd.Context())
 		},
 	}
 

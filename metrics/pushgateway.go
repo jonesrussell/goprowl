@@ -77,7 +77,7 @@ func NewPushGatewayClient(lc fx.Lifecycle, logger *zap.Logger) (*PushGatewayClie
 	}
 
 	// Create pusher with job name "goprowl"
-	pusher := push.New("pushgateway:9091", "goprowl").
+	pusher := push.New("http://pushgateway:9091", "goprowl").
 		Gatherer(prometheus.DefaultGatherer)
 
 	client := &PushGatewayClient{

@@ -10,6 +10,7 @@ type Crawler interface {
 	// Crawl starts crawling from the given URL up to specified depth
 	Crawl(ctx context.Context, startURL string, depth int) error
 	GetID() string
+	CrawlWithHandler(ctx context.Context, startURL string, depth int, handler PageHandler) error
 }
 
 // CrawlResult represents the result of a crawl operation
@@ -43,3 +44,6 @@ type PageContent struct {
 	ContentHash string
 	LastUpdated time.Time
 }
+
+// PageHandler defines the callback for processing crawled pages
+type PageHandler func(context.Context, *CrawlResult) error

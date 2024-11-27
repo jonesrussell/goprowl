@@ -13,12 +13,6 @@ type CollyCrawler struct {
 	collector *colly.Collector
 }
 
-func NewCollyCrawler(maxDepth int) Crawler {
-	config := NewConfig()
-	config.MaxDepth = maxDepth
-	return NewCrawlerFromConfig(config)
-}
-
 // Crawl implements the Crawler interface
 func (c *CollyCrawler) Crawl(ctx context.Context, startURL string, depth int) error {
 	fmt.Printf("\nStarting crawl of %s with depth %d\n", startURL, depth)

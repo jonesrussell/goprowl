@@ -10,17 +10,31 @@ import (
 	"github.com/gocolly/colly/v2/debug"
 )
 
+// ConfigOptions holds command-line parameters for the crawler
+type ConfigOptions struct {
+	URL      string
+	MaxDepth int
+}
+
 // Config holds crawler configuration
 type Config struct {
-	MaxDepth       int
+	ConfigOptions  // Embed the options
 	AllowedDomains []string
 	UserAgent      string
 }
 
-// NewConfig creates a default crawler configuration
-func NewConfig() *Config {
+// ProvideDefaultConfigOptions creates default options
+func ProvideDefaultConfigOptions() *ConfigOptions {
+	return &ConfigOptions{
+		MaxDepth: 1,
+		URL:      "",
+	}
+}
+
+// NewConfig creates a crawler configuration from options
+func NewConfig(opts *ConfigOptions) *Config {
 	return &Config{
-		MaxDepth:       3,
+		ConfigOptions:  *opts,
 		AllowedDomains: []string{},
 		UserAgent:      "GoProwl Bot",
 	}
@@ -34,6 +48,8 @@ func NewCrawlerFromConfig(config *Config) *CollyCrawler {
 		colly.UserAgent(config.UserAgent),
 		colly.Debugger(&debug.LogDebugger{}),
 	)
+
+	fmt.Printf("Configured crawler with MaxDepth: %d\n", config.MaxDepth)
 
 	if len(config.AllowedDomains) > 0 {
 		c.AllowedDomains = config.AllowedDomains
@@ -83,7 +99,7 @@ func setupCallbacks(c *colly.Collector) {
 		link := e.Attr("href")
 		absLink := e.Request.AbsoluteURL(link)
 		if absLink != "" {
-			fmt.Printf("Found link: %s\n", absLink)
+			fmt.Printf("Found link at depth %d: %s\n", e.Request.Depth, absLink)
 			e.Request.Visit(absLink)
 		}
 	})

@@ -7,8 +7,10 @@ import (
 // Module provides crawler dependencies
 var Module = fx.Module("crawlers",
 	fx.Provide(
+		ProvideDefaultConfigOptions,
+		NewConfig,
 		fx.Annotate(
-			NewCollyCrawler,
+			NewCrawlerFromConfig,
 			fx.As(new(Crawler)),
 		),
 	),

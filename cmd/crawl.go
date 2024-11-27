@@ -12,33 +12,30 @@ import (
 	"go.uber.org/fx"
 )
 
-type crawlOptions struct {
-	url   string
-	depth int
-}
-
 func NewCrawlCmd() *cobra.Command {
-	opts := &crawlOptions{}
+	var url string
+	var depth int
 
 	cmd := &cobra.Command{
 		Use:   "crawl",
-		Short: "Start crawling from a given URL",
-		Long:  `Crawl a website starting from the specified URL up to the given depth.`,
+		Short: "Crawl a website",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return fx.New(
+				fx.Supply(&crawlers.ConfigOptions{
+					URL:      url,
+					MaxDepth: depth,
+				}),
 				app.Module,
 				fx.Invoke(func(crawler crawlers.Crawler) error {
-					fmt.Printf("Starting crawl of %s with depth %d\n", opts.url, opts.depth)
-					return crawler.Crawl(cmd.Context(), opts.url, opts.depth)
+					fmt.Printf("Starting crawl of %s with depth %d\n", url, depth)
+					return crawler.Crawl(cmd.Context(), url, depth)
 				}),
-				fx.NopLogger,
 			).Start(cmd.Context())
 		},
 	}
 
-	// Add flags
-	cmd.Flags().StringVarP(&opts.url, "url", "u", "", "Starting URL for crawling (required)")
-	cmd.Flags().IntVarP(&opts.depth, "depth", "d", 1, "Maximum crawl depth")
+	cmd.Flags().StringVarP(&url, "url", "u", "", "Starting URL for crawling (required)")
+	cmd.Flags().IntVarP(&depth, "depth", "d", 1, "Maximum crawl depth")
 	cmd.MarkFlagRequired("url")
 
 	return cmd

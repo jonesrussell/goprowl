@@ -16,3 +16,7 @@ type CrawlResult struct {
 	Links     []string
 	CreatedAt string
 }
+
+type CrawlConfig struct {
+	MaxDepth int
+}

@@ -7,12 +7,15 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
 
 	"github.com/jonesrussell/goprowl/internal/app"
 	"github.com/jonesrussell/goprowl/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/prometheus/common/model"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
@@ -29,6 +32,9 @@ func NewServeCmd() *cobra.Command {
 		Short: "Start the metrics dashboard",
 		Long:  `Start the HTTP server to serve the metrics dashboard. Metrics are pushed to Pushgateway.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := context.WithCancel(cmd.Context())
+			defer cancel()
+
 			stop := make(chan os.Signal, 1)
 			signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
@@ -41,24 +47,61 @@ func NewServeCmd() *cobra.Command {
 
 					// Register all handlers
 					metrics.RegisterDashboard(mux)
-					mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
+					mux.Handle("/metrics", promhttp.Handler())
 					mux.HandleFunc("/api/v1/query", func(w http.ResponseWriter, r *http.Request) {
-						logger.Info("Received query request", zap.String("url", r.URL.String()))
-
 						query := r.URL.Query().Get("query")
 						if query == "" {
 							http.Error(w, "query parameter is required", http.StatusBadRequest)
 							return
 						}
 
-						_, err := registry.Gather()
+						registryMetrics, err := registry.Gather()
 						if err != nil {
 							logger.Error("Failed to gather metrics", zap.Error(err))
 							http.Error(w, "internal server error", http.StatusInternalServerError)
 							return
 						}
 
-						// Process and return metrics
+						var result []struct {
+							Metric map[string]string `json:"metric"`
+							Value  []interface{}     `json:"value"`
+						}
+
+						timestamp := float64(time.Now().Unix())
+
+						for _, mf := range registryMetrics {
+							metricName := *mf.Name
+							if strings.Contains(metricName, query) {
+								for _, m := range mf.Metric {
+									labels := make(map[string]string)
+									for _, l := range m.Label {
+										labels[*l.Name] = *l.Value
+									}
+
+									var value float64
+									switch {
+									case m.Counter != nil:
+										value = *m.Counter.Value
+									case m.Gauge != nil:
+										value = *m.Gauge.Value
+									default:
+										continue
+									}
+
+									result = append(result, struct {
+										Metric map[string]string `json:"metric"`
+										Value  []interface{}     `json:"value"`
+									}{
+										Metric: labels,
+										Value: []interface{}{
+											timestamp,
+											model.SampleValue(value).String(),
+										},
+									})
+								}
+							}
+						}
+
 						response := metrics.QueryResponse{
 							Status: "success",
 							Data: struct {
@@ -69,15 +112,77 @@ func NewServeCmd() *cobra.Command {
 								} `json:"result"`
 							}{
 								ResultType: "vector",
-								Result: make([]struct {
-									Metric map[string]string `json:"metric"`
-									Value  []interface{}     `json:"value"`
-								}, 0),
+								Result:     result,
 							},
 						}
 
 						w.Header().Set("Content-Type", "application/json")
-						json.NewEncoder(w).Encode(response)
+						if err := json.NewEncoder(w).Encode(response); err != nil {
+							logger.Error("Failed to encode response", zap.Error(err))
+							http.Error(w, "failed to encode response", http.StatusInternalServerError)
+							return
+						}
+					})
+
+					mux.HandleFunc("/debug/metrics", func(w http.ResponseWriter, r *http.Request) {
+						logger.Info("debug metrics requested")
+
+						metrics, err := prometheus.DefaultGatherer.Gather()
+						if err != nil {
+							logger.Error("failed to gather metrics", zap.Error(err))
+							http.Error(w, err.Error(), http.StatusInternalServerError)
+							return
+						}
+
+						logger.Info("gathered metrics", zap.Int("count", len(metrics)))
+
+						response := make(map[string]interface{})
+						for _, mf := range metrics {
+							name := *mf.Name
+							logger.Debug("processing metric family",
+								zap.String("name", name),
+								zap.Int("metrics_count", len(mf.Metric)))
+
+							if strings.HasPrefix(name, "goprowl_") {
+								values := make([]map[string]interface{}, 0)
+								for _, m := range mf.Metric {
+									metric := make(map[string]interface{})
+
+									// Add labels
+									labels := make(map[string]string)
+									for _, l := range m.Label {
+										labels[*l.Name] = *l.Value
+									}
+									metric["labels"] = labels
+
+									// Add value based on metric type
+									if m.Gauge != nil {
+										metric["value"] = *m.Gauge.Value
+										metric["type"] = "gauge"
+									} else if m.Counter != nil {
+										metric["value"] = *m.Counter.Value
+										metric["type"] = "counter"
+									}
+
+									values = append(values, metric)
+									logger.Debug("added metric",
+										zap.String("name", name),
+										zap.Any("labels", labels),
+										zap.Any("metric", metric))
+								}
+								response[name] = values
+							}
+						}
+
+						w.Header().Set("Content-Type", "application/json")
+						if err := json.NewEncoder(w).Encode(response); err != nil {
+							logger.Error("failed to encode response", zap.Error(err))
+							http.Error(w, "failed to encode response", http.StatusInternalServerError)
+							return
+						}
+
+						logger.Info("debug metrics returned successfully",
+							zap.Int("metrics_count", len(response)))
 					})
 
 					server := &http.Server{
@@ -107,12 +212,12 @@ func NewServeCmd() *cobra.Command {
 				}),
 			)
 
-			if err := app.Start(cmd.Context()); err != nil {
+			if err := app.Start(ctx); err != nil {
 				return err
 			}
 
 			<-stop
-			return app.Stop(cmd.Context())
+			return app.Stop(ctx)
 		},
 	}
 

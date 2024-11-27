@@ -7,18 +7,25 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/push"
+	dto "github.com/prometheus/client_model/go"
+	"go.uber.org/zap"
 )
 
 var (
-	registrationOnce sync.Once
-	collector        *MetricsCollector
-	collectorMu      sync.RWMutex
+	collector   *MetricsCollector
+	collectorMu sync.RWMutex
+)
+
+const (
+	namespace = "goprowl"
+	component = "component_id"
 )
 
 // MetricsCollector provides a central collection point for all application metrics
 type MetricsCollector struct {
 	mu          sync.RWMutex
 	pushgateway string
+	logger      *zap.Logger
 
 	// Crawler metrics
 	totalActiveRequests *prometheus.GaugeVec
@@ -42,128 +49,133 @@ type MetricsCollector struct {
 	// Add other application metrics here
 }
 
-func NewMetricsCollector(config Config) (*MetricsCollector, error) {
+func NewMetricsCollector(config Config, logger *zap.Logger) (*MetricsCollector, error) {
 	collectorMu.Lock()
 	defer collectorMu.Unlock()
 
-	// Return existing collector if already initialized
 	if collector != nil {
 		return collector, nil
 	}
 
+	logger.Info("initializing metrics collector")
+
+	registry := prometheus.NewRegistry()
 	collector = &MetricsCollector{
 		pushgateway: config.PushgatewayURL,
-		totalActiveRequests: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "goprowl_active_requests",
-			Help: "Number of currently active crawler requests",
-		}, []string{"component_id"}),
+		logger:      logger,
 		totalPagesProcessed: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "goprowl_pages_processed_total",
-			Help: "Total number of pages processed",
-		}, []string{"component_id"}),
+			Namespace: "goprowl",
+			Name:      "pages_processed_total",
+			Help:      "Total number of pages processed",
+		}, []string{"component_id", "component_type"}),
 		totalErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "goprowl_errors_total",
-			Help: "Total number of crawler errors",
-		}, []string{"component_id"}),
+			Namespace: namespace,
+			Name:      "errors_total",
+			Help:      "Total number of crawler errors",
+		}, []string{component}),
 		responseSizes: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "goprowl_response_sizes_bytes",
-			Help:    "Size of HTTP responses in bytes",
-			Buckets: prometheus.ExponentialBuckets(100, 10, 8),
-		}, []string{"component_id"}),
+			Namespace: namespace,
+			Name:      "response_sizes_bytes",
+			Help:      "Size of HTTP responses in bytes",
+			Buckets:   prometheus.ExponentialBuckets(100, 10, 8),
+		}, []string{component}),
 		requestDurations: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "goprowl_request_duration_seconds",
-			Help:    "Duration of HTTP requests in seconds",
-			Buckets: prometheus.DefBuckets,
-		}, []string{"component_id"}),
+			Namespace: namespace,
+			Name:      "request_duration_seconds",
+			Help:      "Duration of HTTP requests in seconds",
+			Buckets:   prometheus.DefBuckets,
+		}, []string{component}),
 		listOperationDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "goprowl_list_operation_duration_seconds",
-			Help:    "Duration of list operations in seconds",
-			Buckets: prometheus.DefBuckets,
-		}, []string{"component_id"}),
+			Namespace: namespace,
+			Name:      "list_operation_duration_seconds",
+			Help:      "Duration of list operations in seconds",
+			Buckets:   prometheus.DefBuckets,
+		}, []string{component}),
 		listOperationErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "goprowl_list_operation_errors_total",
-			Help: "Total number of list operation errors",
-		}, []string{"component_id"}),
+			Namespace: namespace,
+			Name:      "list_operation_errors_total",
+			Help:      "Total number of list operation errors",
+		}, []string{component}),
 		indexedDocuments: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "goprowl_indexed_documents_total",
-			Help: "Total number of indexed documents",
-		}, []string{"component_id"}),
-		crawlDuration: prometheus.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Name:    "goprowl_crawl_duration_seconds",
-				Help:    "Duration of crawl operations",
-				Buckets: prometheus.ExponentialBuckets(1, 2, 10),
-			},
-			[]string{"component_id"},
-		),
-		pageDepth: prometheus.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Name:    "goprowl_page_depth",
-				Help:    "Depth of crawled pages",
-				Buckets: []float64{1, 2, 3, 4, 5, 10},
-			},
-			[]string{"component_id"},
-		),
-		contentTypes: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "goprowl_content_types_total",
-				Help: "Count of different content types encountered",
-			},
-			[]string{"component_id", "content_type"},
-		),
-		statusCodes: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "goprowl_status_codes_total",
-				Help: "Count of HTTP status codes",
-			},
-			[]string{"component_id", "code"},
-		),
-		linkCount: prometheus.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Name:    "goprowl_links_per_page",
-				Help:    "Number of links found per page",
-				Buckets: prometheus.LinearBuckets(0, 10, 10),
-			},
-			[]string{"component_id"},
-		),
+			Namespace: namespace,
+			Name:      "indexed_documents_total",
+			Help:      "Total number of indexed documents",
+		}, []string{component}),
+		crawlDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Name:      "crawl_duration_seconds",
+			Help:      "Duration of crawl operations",
+			Buckets:   prometheus.ExponentialBuckets(1, 2, 10),
+		}, []string{component}),
+		pageDepth: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Name:      "page_depth",
+			Help:      "Depth of crawled pages",
+			Buckets:   []float64{1, 2, 3, 4, 5, 10},
+		}, []string{component}),
+		contentTypes: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "content_types_total",
+			Help:      "Count of different content types encountered",
+		}, []string{component, "content_type"}),
+		statusCodes: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "status_codes_total",
+			Help:      "Count of HTTP status codes",
+		}, []string{component, "code"}),
+		linkCount: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Name:      "links_per_page",
+			Help:      "Number of links found per page",
+			Buckets:   prometheus.LinearBuckets(0, 10, 10),
+		}, []string{component}),
+		totalActiveRequests: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "active_requests",
+			Help:      "Number of currently active requests",
+		}, []string{"component_id", "component_type"}),
 	}
 
-	// Register metrics with prometheus only once
-	var registerErr error
-	registrationOnce.Do(func() {
-		// Use MustRegister inside a recover to convert panic to error
-		defer func() {
-			if r := recover(); r != nil {
-				if err, ok := r.(error); ok {
-					registerErr = err
-				} else {
-					registerErr = fmt.Errorf("metrics registration failed: %v", r)
-				}
-			}
-		}()
+	collector.totalPagesProcessed.WithLabelValues("crawler", "crawler").Add(0)
+	collector.totalActiveRequests.WithLabelValues("crawler", "crawler").Set(0)
 
-		prometheus.MustRegister(
-			collector.totalActiveRequests,
-			collector.totalPagesProcessed,
-			collector.totalErrors,
-			collector.responseSizes,
-			collector.requestDurations,
-			collector.listOperationDuration,
-			collector.listOperationErrors,
-			collector.indexedDocuments,
-			collector.crawlDuration,
-			collector.pageDepth,
-			collector.contentTypes,
-			collector.statusCodes,
-			collector.linkCount,
-		)
-	})
-
-	if registerErr != nil {
-		return nil, registerErr
+	if err := registerMetrics(collector, registry, logger); err != nil {
+		return nil, fmt.Errorf("failed to register metrics: %w", err)
 	}
 
+	prometheus.DefaultRegisterer = registry
+	prometheus.DefaultGatherer = registry
+
+	logger.Info("metrics collector initialized successfully")
 	return collector, nil
+}
+
+func registerMetrics(c *MetricsCollector, registry *prometheus.Registry, logger *zap.Logger) error {
+	metrics := []prometheus.Collector{
+		c.totalActiveRequests,
+		c.totalPagesProcessed,
+		c.totalErrors,
+		c.responseSizes,
+		c.requestDurations,
+		c.listOperationDuration,
+		c.listOperationErrors,
+		c.indexedDocuments,
+		c.crawlDuration,
+		c.pageDepth,
+		c.contentTypes,
+		c.statusCodes,
+		c.linkCount,
+	}
+
+	for _, metric := range metrics {
+		if err := registry.Register(metric); err != nil {
+			logger.Error("failed to register metric", zap.Error(err))
+			return err
+		}
+		logger.Info("registered metric successfully", zap.String("metric", fmt.Sprintf("%T", metric)))
+	}
+
+	return nil
 }
 
 // PushMetrics pushes all metrics to Pushgateway with context
@@ -171,7 +183,6 @@ func (c *MetricsCollector) PushMetrics(ctx context.Context, job string) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	// Create a channel to handle timeout
 	done := make(chan error, 1)
 
 	go func() {
@@ -179,11 +190,26 @@ func (c *MetricsCollector) PushMetrics(ctx context.Context, job string) error {
 		done <- pusher.Push()
 	}()
 
-	// Wait for either the push to complete or context to timeout
 	select {
 	case err := <-done:
 		return err
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// Add these helper methods to MetricsCollector
+func (c *MetricsCollector) IncrementPagesProcessedWithLabel(componentID string) {
+	c.totalPagesProcessed.WithLabelValues(componentID).Inc()
+}
+
+func (c *MetricsCollector) GetPagesProcessed(componentID string) float64 {
+	m := &dto.Metric{}
+	c.totalPagesProcessed.WithLabelValues(componentID).Write(m)
+	return *m.Counter.Value
+}
+
+// GetComponentMetrics creates a new ComponentMetrics instance
+func (c *MetricsCollector) GetComponentMetrics(componentType string) *ComponentMetrics {
+	return NewComponentMetrics(c, componentType)
 }

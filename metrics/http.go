@@ -12,12 +12,14 @@ import (
 	"go.uber.org/zap"
 )
 
+// MetricsServer holds the configuration and dependencies for the metrics server
 type MetricsServer struct {
 	logger   *zap.Logger
 	config   Config
 	registry *prometheus.Registry
 }
 
+// NewMetricsServer creates and starts a new MetricsServer
 func NewMetricsServer(lc fx.Lifecycle, logger *zap.Logger, config Config, registry *prometheus.Registry) *MetricsServer {
 	server := &MetricsServer{
 		logger:   logger,
@@ -46,14 +48,15 @@ func NewMetricsServer(lc fx.Lifecycle, logger *zap.Logger, config Config, regist
 			zap.String("api_url", "http://localhost"+addr+"/api/v1/query"),
 			zap.String("dashboard_url", "http://localhost"+addr+"/dashboard"),
 		)
-		if err := http.ListenAndServe(addr, mux); err != nil {
-			logger.Error("metrics server failed", zap.Error(err))
+		if err := http.ListenAndServe(addr, mux); err != nil && err != http.ErrServerClosed {
+			logger.Fatal("metrics server failed", zap.Error(err))
 		}
 	}()
 
 	return server
 }
 
+// handleQuery handles the /api/v1/query endpoint for querying metrics
 func (s *MetricsServer) handleQuery(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("Received query request", zap.String("url", r.URL.String()))
 

@@ -14,7 +14,7 @@ import (
 type CollyCrawler struct {
 	collector    *colly.Collector
 	metrics      *metrics.ComponentMetrics
-	pushgateway  *metrics.PushGatewayClient
+	pushgateway  metrics.PushGatewayClient
 	id           string
 	logger       *zap.Logger
 	cfg          *Config
@@ -26,7 +26,7 @@ func NewCollyCrawler(
 	logger *zap.Logger,
 	collector *colly.Collector,
 	metrics *metrics.ComponentMetrics,
-	pushgateway *metrics.PushGatewayClient,
+	pushgateway metrics.PushGatewayClient,
 	cfg *Config,
 ) (Crawler, error) {
 	if logger == nil {
@@ -36,7 +36,7 @@ func NewCollyCrawler(
 		return nil, fmt.Errorf("config cannot be nil")
 	}
 
-	uniqueID := fmt.Sprintf("crawler-%d", time.Now().UnixNano())
+	uniqueID := fmt.Sprintf("component-%d", time.Now().UnixNano())
 
 	crawler := &CollyCrawler{
 		collector:    collector,
@@ -56,6 +56,7 @@ func NewCollyCrawler(
 func setupCallbacks(c *colly.Collector, m *metrics.ComponentMetrics, logger *zap.Logger) {
 	c.OnRequest(func(r *colly.Request) {
 		m.IncrementActiveRequests()
+		m.IncrementActiveRequestsWithLabel("crawler")
 		logger.Info("starting request",
 			zap.String("url", r.URL.String()),
 		)
@@ -72,7 +73,7 @@ func setupCallbacks(c *colly.Collector, m *metrics.ComponentMetrics, logger *zap
 
 	c.OnResponse(func(r *colly.Response) {
 		m.DecrementActiveRequests()
-		m.IncrementPagesProcessed()
+		m.IncrementPagesProcessedWithLabel("crawler")
 		m.ObserveResponseSize(float64(len(r.Body)))
 		logger.Info("received response",
 			zap.String("url", r.Request.URL.String()),
@@ -124,6 +125,10 @@ type CrawlStats struct {
 
 // CrawlWithHandler implements the Crawler interface
 func (c *CollyCrawler) CrawlWithHandler(ctx context.Context, startURL string, depth int, handler PageHandler) error {
+	// Initialize metrics at start
+	c.metrics.ResetActiveRequests()
+	c.startTime = time.Now()
+
 	stats := &CrawlStats{
 		StartTime:        time.Now(),
 		ContentTypeStats: make(map[string]int),
@@ -267,6 +272,23 @@ func (c *CollyCrawler) CrawlWithHandler(ctx context.Context, startURL string, de
 		)
 		return ctx.Err()
 	}
+
+	// Update metrics periodically
+	statusTicker := time.NewTicker(5 * time.Second)
+	defer statusTicker.Stop()
+
+	go func() {
+		for {
+			select {
+			case <-statusTicker.C:
+				if err := c.pushgateway.Push(ctx); err != nil {
+					c.logger.Error("failed to push metrics", zap.Error(err))
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	return nil
 }

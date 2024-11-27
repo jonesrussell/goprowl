@@ -11,6 +11,15 @@ import (
 	"go.uber.org/zap"
 )
 
+// Constants for label keys
+const (
+	LabelComponentID   = "component_id"
+	LabelComponentType = "component_type"
+	LabelCrawlerID     = "crawler_id"
+	LabelStatus        = "status"
+	LabelURL           = "url"
+)
+
 // CrawlerMetrics contains Pushgateway-specific metrics
 var (
 	activeRequests = prometheus.NewGaugeVec(
@@ -19,7 +28,7 @@ var (
 			Name:      "active_requests",
 			Help:      "Number of currently active crawler requests",
 		},
-		[]string{"crawler_id"},
+		[]string{LabelComponentID, LabelComponentType},
 	)
 
 	crawlerCompletionTime = prometheus.NewGaugeVec(
@@ -29,7 +38,7 @@ var (
 			Name:      "completion_timestamp",
 			Help:      "Timestamp when a crawler completed its task",
 		},
-		[]string{"crawler_id", "status", "url"},
+		[]string{LabelCrawlerID, LabelStatus, LabelURL},
 	)
 
 	crawlerPagesProcessed = prometheus.NewCounterVec(
@@ -39,7 +48,7 @@ var (
 			Name:      "pages_processed_total",
 			Help:      "Total number of pages processed by crawler",
 		},
-		[]string{"crawler_id"},
+		[]string{LabelCrawlerID},
 	)
 
 	crawlerDuration = prometheus.NewGaugeVec(
@@ -49,38 +58,39 @@ var (
 			Name:      "duration_seconds",
 			Help:      "Duration of crawler run in seconds",
 		},
-		[]string{"crawler_id", "url"},
+		[]string{LabelCrawlerID, LabelURL},
 	)
 )
 
-type PushGatewayClient struct {
+// pushGatewayClientImpl implements the PushGatewayClient interface
+type pushGatewayClientImpl struct {
 	logger   *zap.Logger
 	pusher   *push.Pusher
 	registry *prometheus.Registry
 }
 
-func NewPushGatewayClient(lc fx.Lifecycle, logger *zap.Logger, config Config) (*PushGatewayClient, error) {
-	// Create a new registry instead of using the default one
+// NewPushGatewayClient creates a new PushGatewayClient
+func NewPushGatewayClient(lc fx.Lifecycle, logger *zap.Logger, config Config) (PushGatewayClient, error) {
 	registry := prometheus.NewRegistry()
 
 	// Register metrics with the new registry
-	activeRequests := prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "goprowl_active_requests",
-			Help: "Number of currently active crawler requests",
-		},
-		[]string{"crawler_id"},
-	)
-
-	if err := registry.Register(activeRequests); err != nil {
-		return nil, fmt.Errorf("failed to register active_requests metric: %w", err)
+	metrics := []prometheus.Collector{
+		activeRequests,
+		crawlerCompletionTime,
+		crawlerPagesProcessed,
+		crawlerDuration,
 	}
 
-	// Use config.PushgatewayURL instead of hardcoded value
-	pusher := push.New(config.PushgatewayURL, "goprowl").
-		Gatherer(prometheus.DefaultGatherer)
+	for _, m := range metrics {
+		if err := registry.Register(m); err != nil {
+			return nil, fmt.Errorf("failed to register metric: %w", err)
+		}
+	}
 
-	client := &PushGatewayClient{
+	pusher := push.New(config.PushgatewayURL, "goprowl").
+		Gatherer(registry)
+
+	client := &pushGatewayClientImpl{
 		logger:   logger,
 		pusher:   pusher,
 		registry: registry,
@@ -89,15 +99,42 @@ func NewPushGatewayClient(lc fx.Lifecycle, logger *zap.Logger, config Config) (*
 	// Add lifecycle hooks
 	lc.Append(fx.Hook{
 		OnStop: func(ctx context.Context) error {
-			return client.pusher.Push()
+			return client.Push(ctx)
 		},
 	})
 
 	return client, nil
 }
 
-// RecordCrawlMetrics records metrics for a crawl operation
-func (c *PushGatewayClient) RecordCrawlMetrics(ctx context.Context, crawlerID string, url string, status string, duration time.Duration, pagesProcessed int) error {
+// Push implements PushGatewayClient
+func (c *pushGatewayClientImpl) Push(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		if err := c.pusher.Push(); err != nil {
+			c.logger.Error("failed to push metrics", zap.Error(err))
+			return fmt.Errorf("failed to push metrics: %w", err)
+		}
+		c.logger.Debug("successfully pushed metrics to Pushgateway")
+		return nil
+	}
+}
+
+// StartRequest implements PushGatewayClient
+func (c *pushGatewayClientImpl) StartRequest(crawlerID string) error {
+	activeRequests.WithLabelValues(crawlerID, "crawler").Inc()
+	return c.Push(context.Background())
+}
+
+// EndRequest implements PushGatewayClient
+func (c *pushGatewayClientImpl) EndRequest(crawlerID string) error {
+	activeRequests.WithLabelValues(crawlerID, "crawler").Dec()
+	return c.Push(context.Background())
+}
+
+// RecordCrawlMetrics implements PushGatewayClient
+func (c *pushGatewayClientImpl) RecordCrawlMetrics(ctx context.Context, crawlerID, url, status string, duration time.Duration, pagesProcessed int) error {
 	// Set completion timestamp
 	crawlerCompletionTime.WithLabelValues(crawlerID, status, url).Set(float64(time.Now().Unix()))
 
@@ -107,12 +144,12 @@ func (c *PushGatewayClient) RecordCrawlMetrics(ctx context.Context, crawlerID st
 	// Set duration
 	crawlerDuration.WithLabelValues(crawlerID, url).Set(duration.Seconds())
 
-	// Push metrics to Pushgateway
-	if err := c.pusher.Push(); err != nil {
-		return fmt.Errorf("failed to push metrics: %w", err)
+	// Push metrics
+	if err := c.Push(ctx); err != nil {
+		return fmt.Errorf("failed to record crawl metrics: %w", err)
 	}
 
-	c.logger.Info("pushed crawler metrics",
+	c.logger.Info("recorded crawl metrics",
 		zap.String("crawler_id", crawlerID),
 		zap.String("url", url),
 		zap.String("status", status),
@@ -120,23 +157,5 @@ func (c *PushGatewayClient) RecordCrawlMetrics(ctx context.Context, crawlerID st
 		zap.Int("pages_processed", pagesProcessed),
 	)
 
-	return nil
-}
-
-// StartRequest increments the active request counter
-func (c *PushGatewayClient) StartRequest(crawlerID string) error {
-	activeRequests.WithLabelValues(crawlerID).Inc()
-	if err := c.pusher.Push(); err != nil {
-		return fmt.Errorf("failed to push start request metric: %w", err)
-	}
-	return nil
-}
-
-// EndRequest decrements the active request counter
-func (c *PushGatewayClient) EndRequest(crawlerID string) error {
-	activeRequests.WithLabelValues(crawlerID).Dec()
-	if err := c.pusher.Push(); err != nil {
-		return fmt.Errorf("failed to push end request metric: %w", err)
-	}
 	return nil
 }

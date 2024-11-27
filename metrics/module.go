@@ -23,7 +23,7 @@ var Module = fx.Module("metrics",
 		),
 		NewMetricsCollector,
 		func(collector *MetricsCollector) *ComponentMetrics {
-			return NewComponentMetrics(collector, "crawler")
+			return NewComponentMetrics(collector, "goprowl")
 		},
 	),
 	fx.Invoke(registerMetricsHandlers),

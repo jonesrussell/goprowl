@@ -57,4 +57,41 @@ func (m *ComponentMetrics) ObserveRequestDuration(duration float64) {
 	m.collector.requestDurations.WithLabelValues(m.componentID).Observe(duration)
 }
 
+// ComponentMetrics methods for list operations
+func (m *ComponentMetrics) ObserveHistogram(name string, value float64) {
+	m.collector.mu.Lock()
+	defer m.collector.mu.Unlock()
+
+	switch name {
+	case "list_documents_duration_seconds":
+		m.collector.listOperationDuration.WithLabelValues(m.componentID).Observe(value)
+	default:
+		// Add logging here for unknown metric names
+	}
+}
+
+func (m *ComponentMetrics) IncCounter(name string, value float64) {
+	m.collector.mu.Lock()
+	defer m.collector.mu.Unlock()
+
+	switch name {
+	case "list_documents_errors_total":
+		m.collector.listOperationErrors.WithLabelValues(m.componentID).Add(value)
+	default:
+		// Add logging here for unknown metric names
+	}
+}
+
+func (m *ComponentMetrics) SetGaugeValue(name string, value float64) {
+	m.collector.mu.Lock()
+	defer m.collector.mu.Unlock()
+
+	switch name {
+	case "indexed_documents_total":
+		m.collector.indexedDocuments.WithLabelValues(m.componentID).Set(value)
+	default:
+		// Add logging here for unknown metric names
+	}
+}
+
 // ... other methods ...

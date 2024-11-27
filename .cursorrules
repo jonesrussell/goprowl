@@ -1,28 +1,125 @@
+# Core Project Guidelines
 Always use the project's import path github.com/jonesrussell/goprowl
 Always implement proper interface abstractions following Go best practices
 Always use uber-fx for dependency injection and application lifecycle management
+
+# Dependency Injection & Application Structure
 Always integrate uber-fx with Cobra commands properly:
   - Initialize fx.App in cmd/root.go's Execute() function
   - Use fx.Module for organizing dependencies
   - Handle both fx.App and cobra.Command errors appropriately
+  - Ensure proper logger initialization before other dependencies
+  - Use fx.WithLogger for consistent logging configuration
 
-Utilize github.com/gocolly/colly/v2 for web crawling
-Always use github.com/gocolly/colly/v2/debug for debugging
-Always use bleve/v2 for search engine functionality
+# Core Dependencies
+Always use:
+  - github.com/gocolly/colly/v2 for web crawling
+  - github.com/gocolly/colly/v2/debug for debugging
+  - bleve/v2 for search engine functionality
+  - go.uber.org/zap for structured logging
+  - github.com/prometheus/client_golang for metrics
+
+# Concurrency & Safety
 Always use sync.RWMutex for concurrent operations in storage implementations
-Always implement proper error handling and avoid panics
 Always use context.Context for cancellation and timeouts
 Never skip error handling
 Never use init() functions except for fx.Module registration
-Run code through golangci-lint before suggesting changes
 
+# Code Organization
 Files named types.go should only contain interface and type definitions
 
+# Component Separation
 The separation of concerns is now:
 search/engine/types.go: Interface and type definitions
 search/engine/query.go: Query parsing and processing
 search/engine/basic_search.go: Search implementation and relevancy calculation
+search/crawlers/: Web crawling implementation
+search/storage/: Storage backend implementations
+metrics/: Application metrics and monitoring
 
-Command structure:
+# Command Structure
 cmd/root.go: Main application setup and fx integration
-cmd/<command>.go: Individual command implementations
+cmd/<command>.go: Individual command implementations with proper DI
+
+# Cobra CLI Standards
+Always follow these standards for Cobra commands:
+- Use short and long flags consistently (-v, --verbose)
+- Include command descriptions and examples
+- Implement proper flag validation
+- Use RunE instead of Run for error handling
+- Follow naming convention: New<Command>Cmd()
+- Include required flags using MarkFlagRequired()
+- Group related flags using Flag Groups when applicable
+- Implement proper context handling
+- Include completion commands where appropriate
+
+# Command Documentation
+Each command should include:
+- Short description (one line)
+- Long description (detailed usage)
+- Example usage
+- Flag descriptions
+- Required/optional status for each flag
+
+# Command Error Handling
+- Return errors rather than calling os.Exit
+- Use fmt.Errorf with %w for error wrapping
+- Include context in error messages
+- Handle flag validation before execution
+- Implement proper cleanup in error cases
+
+# Command Testing
+- Test flag parsing
+- Test command execution
+- Mock dependencies using interfaces
+- Test error conditions
+- Include integration tests for commands
+
+# Command Metrics
+- Track command execution time
+- Record command usage statistics
+- Monitor error rates
+- Include command-specific metrics
+
+# Command Logging
+- Use structured logging with zap
+- Include command context in logs
+- Use appropriate log levels
+- Log command start/completion
+- Include relevant command parameters in logs
+
+# Debug Mode Standards
+When debug flag (-v, --verbose) is enabled:
+- Show full dependency injection logs
+- Use development logger configuration
+- Include debug level messages
+- Show detailed timestamps
+- Include caller information
+- Display colored log output
+- Show full error stack traces
+
+# Logging Standards
+Always use structured logging with zap
+Include relevant context in log fields
+Use appropriate log levels (debug, info, warn, error)
+
+# Error Handling
+Always implement proper error handling and avoid panics
+Use error wrapping with fmt.Errorf("context: %w", err)
+Return errors rather than logging and continuing
+
+# Testing & Quality
+Run code through golangci-lint before suggesting changes
+Implement unit tests for all components
+Use mockery for interface mocking
+Include integration tests where appropriate
+
+# Metrics & Monitoring
+Always implement prometheus metrics for key operations
+Use proper metric types (counter, gauge, histogram)
+Include component-specific metrics
+
+# Documentation
+Include godoc comments for exported types and functions
+Maintain README.md with current setup instructions
+Document configuration options

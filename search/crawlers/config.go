@@ -22,6 +22,8 @@ type Config struct {
 	ConfigOptions  // Embed the options
 	AllowedDomains []string
 	UserAgent      string
+	Parallelism    int
+	RequestDelay   time.Duration
 }
 
 // ProvideDefaultConfigOptions creates default options

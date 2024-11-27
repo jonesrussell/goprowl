@@ -1,10 +1,18 @@
 package metrics
 
 import (
+	"context"
+	"fmt"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/push"
+)
+
+var (
+	registrationOnce sync.Once
+	collector        *MetricsCollector
+	collectorMu      sync.RWMutex
 )
 
 // MetricsCollector provides a central collection point for all application metrics
@@ -19,11 +27,24 @@ type MetricsCollector struct {
 	responseSizes       *prometheus.HistogramVec
 	requestDurations    *prometheus.HistogramVec
 
+	// List command metrics
+	listOperationDuration *prometheus.HistogramVec
+	listOperationErrors   *prometheus.CounterVec
+	indexedDocuments      *prometheus.GaugeVec
+
 	// Add other application metrics here
 }
 
 func NewMetricsCollector(config Config) (*MetricsCollector, error) {
-	collector := &MetricsCollector{
+	collectorMu.Lock()
+	defer collectorMu.Unlock()
+
+	// Return existing collector if already initialized
+	if collector != nil {
+		return collector, nil
+	}
+
+	collector = &MetricsCollector{
 		pushgateway: config.PushgatewayURL,
 		totalActiveRequests: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "goprowl_active_requests",
@@ -47,25 +68,72 @@ func NewMetricsCollector(config Config) (*MetricsCollector, error) {
 			Help:    "Duration of HTTP requests in seconds",
 			Buckets: prometheus.DefBuckets,
 		}, []string{"component_id"}),
+		listOperationDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "goprowl_list_operation_duration_seconds",
+			Help:    "Duration of list operations in seconds",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"component_id"}),
+		listOperationErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "goprowl_list_operation_errors_total",
+			Help: "Total number of list operation errors",
+		}, []string{"component_id"}),
+		indexedDocuments: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "goprowl_indexed_documents_total",
+			Help: "Total number of indexed documents",
+		}, []string{"component_id"}),
 	}
 
-	// Register metrics with prometheus
-	prometheus.MustRegister(
-		collector.totalActiveRequests,
-		collector.totalPagesProcessed,
-		collector.totalErrors,
-		collector.responseSizes,
-		collector.requestDurations,
-	)
+	// Register metrics with prometheus only once
+	var registerErr error
+	registrationOnce.Do(func() {
+		// Use MustRegister inside a recover to convert panic to error
+		defer func() {
+			if r := recover(); r != nil {
+				if err, ok := r.(error); ok {
+					registerErr = err
+				} else {
+					registerErr = fmt.Errorf("metrics registration failed: %v", r)
+				}
+			}
+		}()
+
+		prometheus.MustRegister(
+			collector.totalActiveRequests,
+			collector.totalPagesProcessed,
+			collector.totalErrors,
+			collector.responseSizes,
+			collector.requestDurations,
+			collector.listOperationDuration,
+			collector.listOperationErrors,
+			collector.indexedDocuments,
+		)
+	})
+
+	if registerErr != nil {
+		return nil, registerErr
+	}
 
 	return collector, nil
 }
 
-// PushMetrics pushes all metrics to Pushgateway
-func (c *MetricsCollector) PushMetrics(job string) error {
+// PushMetrics pushes all metrics to Pushgateway with context
+func (c *MetricsCollector) PushMetrics(ctx context.Context, job string) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	pusher := push.New(c.pushgateway, job)
-	return pusher.Push()
+	// Create a channel to handle timeout
+	done := make(chan error, 1)
+
+	go func() {
+		pusher := push.New(c.pushgateway, job)
+		done <- pusher.Push()
+	}()
+
+	// Wait for either the push to complete or context to timeout
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

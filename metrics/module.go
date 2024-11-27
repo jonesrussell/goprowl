@@ -25,6 +25,7 @@ var Module = fx.Module("metrics",
 		func(collector *MetricsCollector) *ComponentMetrics {
 			return NewComponentMetrics(collector, "goprowl")
 		},
+		NewPushGatewayClient,
 	),
 	fx.Invoke(registerMetricsHandlers),
 )

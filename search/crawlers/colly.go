@@ -12,17 +12,21 @@ import (
 )
 
 type CollyCrawler struct {
-	collector *colly.Collector
-	metrics   *metrics.ComponentMetrics
-	id        string
-	logger    *zap.Logger
-	cfg       *Config
+	collector    *colly.Collector
+	metrics      *metrics.ComponentMetrics
+	pushgateway  *metrics.PushGatewayClient
+	id           string
+	logger       *zap.Logger
+	cfg          *Config
+	startTime    time.Time
+	pagesVisited int
 }
 
 func NewCollyCrawler(
 	logger *zap.Logger,
 	collector *colly.Collector,
 	metrics *metrics.ComponentMetrics,
+	pushgateway *metrics.PushGatewayClient,
 	cfg *Config,
 ) (Crawler, error) {
 	if logger == nil {
@@ -35,11 +39,13 @@ func NewCollyCrawler(
 	uniqueID := fmt.Sprintf("crawler-%d", time.Now().UnixNano())
 
 	crawler := &CollyCrawler{
-		collector: collector,
-		metrics:   metrics,
-		id:        uniqueID,
-		logger:    logger,
-		cfg:       cfg,
+		collector:    collector,
+		metrics:      metrics,
+		pushgateway:  pushgateway,
+		id:           uniqueID,
+		logger:       logger,
+		cfg:          cfg,
+		pagesVisited: 0,
 	}
 
 	setupCallbacks(collector, metrics, logger)
@@ -108,6 +114,8 @@ func (c *CollyCrawler) Crawl(ctx context.Context, startURL string, depth int) er
 
 // CrawlWithHandler implements the Crawler interface
 func (c *CollyCrawler) CrawlWithHandler(ctx context.Context, startURL string, depth int, handler PageHandler) error {
+	c.startTime = time.Now()
+
 	c.logger.Info("starting crawl with handler",
 		zap.String("crawler_id", c.id),
 		zap.String("url", startURL),
@@ -173,9 +181,26 @@ func (c *CollyCrawler) CrawlWithHandler(ctx context.Context, startURL string, de
 
 	select {
 	case <-done:
+		duration := time.Since(c.startTime)
+		err := c.pushgateway.RecordCrawlCompletion(
+			ctx,
+			c.id,
+			"completed",
+			startURL,
+			duration,
+			c.pagesVisited,
+		)
+		if err != nil {
+			c.logger.Error("failed to push completion metrics",
+				zap.Error(err),
+			)
+		}
+
 		c.logger.Info("crawl completed successfully",
 			zap.String("url", startURL),
 			zap.Int("depth", depth),
+			zap.Duration("duration", duration),
+			zap.Int("pages_visited", c.pagesVisited),
 		)
 	case <-time.After(2 * time.Minute):
 		c.logger.Error("crawl timed out",

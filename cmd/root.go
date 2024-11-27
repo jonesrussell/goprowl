@@ -164,6 +164,7 @@ func Execute() error {
 		NewCrawlCmd(),
 		NewSearchCmd(),
 		NewListCmd(),
+		NewServeCmd(),
 	)
 
 	// Execute with context and handle any errors

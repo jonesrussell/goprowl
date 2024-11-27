@@ -59,7 +59,7 @@ type PushGatewayClient struct {
 	registry *prometheus.Registry
 }
 
-func NewPushGatewayClient(lc fx.Lifecycle, logger *zap.Logger) (*PushGatewayClient, error) {
+func NewPushGatewayClient(lc fx.Lifecycle, logger *zap.Logger, config Config) (*PushGatewayClient, error) {
 	// Create a new registry instead of using the default one
 	registry := prometheus.NewRegistry()
 
@@ -76,8 +76,8 @@ func NewPushGatewayClient(lc fx.Lifecycle, logger *zap.Logger) (*PushGatewayClie
 		return nil, fmt.Errorf("failed to register active_requests metric: %w", err)
 	}
 
-	// Create pusher with job name "goprowl"
-	pusher := push.New("http://pushgateway:9091", "goprowl").
+	// Use config.PushgatewayURL instead of hardcoded value
+	pusher := push.New(config.PushgatewayURL, "goprowl").
 		Gatherer(prometheus.DefaultGatherer)
 
 	client := &PushGatewayClient{

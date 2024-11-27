@@ -54,5 +54,14 @@
 		}
 	},
 	"forwardPorts": [9090, 9091],
-	"runServices": ["app", "prometheus", "pushgateway"]
+	"runServices": [
+		"app",
+		"prometheus",
+		"pushgateway"
+	],
+	"portsAttributes": {
+		"8085": {
+			"label": "dashboard"
+		}
+	}
 }

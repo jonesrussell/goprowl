@@ -3,6 +3,7 @@ package metrics
 import (
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/fx"
 )
 
@@ -11,6 +12,7 @@ func NewDefaultConfig() Config {
 	return Config{
 		PushgatewayURL: "http://pushgateway:9091",
 		PushInterval:   15 * time.Second,
+		MetricsPort:    ":8085",
 	}
 }
 
@@ -25,5 +27,9 @@ var Module = fx.Module("metrics",
 			return NewComponentMetrics(collector, "goprowl")
 		},
 		NewPushGatewayClient,
+		func() *prometheus.Registry {
+			return prometheus.NewRegistry()
+		},
+		NewMetricsServer,
 	),
 )

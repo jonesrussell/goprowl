@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"go.uber.org/fx"
+	"go.uber.org/zap"
 )
 
 var rootCmd = &cobra.Command{
@@ -22,7 +24,38 @@ configurable storage backends.`,
 	},
 }
 
+var logger *zap.Logger
+
+func NewLoggerModule() fx.Option {
+	return fx.Module("logger",
+		fx.Provide(
+			func() (*zap.Logger, error) {
+				// Configure production logger
+				logger, err := zap.NewProduction()
+				if err != nil {
+					return nil, fmt.Errorf("failed to create logger: %w", err)
+				}
+				return logger, nil
+			},
+		),
+	)
+}
+
 func Execute() error {
+	// Create fx application
+	app := fx.New(
+		NewLoggerModule(),
+		fx.Invoke(func(log *zap.Logger) {
+			logger = log // Store logger in package variable
+		}),
+	)
+
+	// Start fx application
+	if err := app.Start(context.Background()); err != nil {
+		return fmt.Errorf("failed to start application: %w", err)
+	}
+	defer app.Stop(context.Background())
+
 	// Create a cancellable context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -35,21 +68,20 @@ func Execute() error {
 	signalCtx, signalCancel := context.WithCancel(context.Background())
 	defer signalCancel()
 
+	// Update signal handling to use logger
 	go func() {
 		select {
 		case sig := <-sigChan:
-			fmt.Printf("\nReceived signal %v. Initiating graceful shutdown...\n", sig)
-			// Cancel the main context
+			logger.Info("received signal, initiating graceful shutdown",
+				zap.String("signal", sig.String()))
 			cancel()
 
-			// Wait for second signal for force quit
 			select {
 			case sig := <-sigChan:
-				fmt.Printf("\nReceived second signal %v. Force quitting...\n", sig)
-				os.Exit(1)
+				logger.Fatal("received second signal, force quitting",
+					zap.String("signal", sig.String()))
 			case <-time.After(10 * time.Second):
-				fmt.Println("\nGraceful shutdown timed out. Force quitting...")
-				os.Exit(1)
+				logger.Fatal("graceful shutdown timed out, force quitting")
 			}
 		case <-signalCtx.Done():
 			return
@@ -66,9 +98,11 @@ func Execute() error {
 	// Execute with context and handle any errors
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		signalCancel() // Clean up signal handler
+		logger.Error("execution error", zap.Error(err))
 		return fmt.Errorf("execution error: %w", err)
 	}
 
 	signalCancel() // Clean up signal handler
+	logger.Info("application completed successfully")
 	return nil
 }

@@ -40,6 +40,7 @@ func NewLoggerModule() fx.Option {
 				config := zap.NewProductionConfig()
 				config.OutputPaths = []string{"stdout"}
 				config.ErrorOutputPaths = []string{"stderr"}
+				config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
 				logger, err := config.Build()
 				if err != nil {
 					return nil, fmt.Errorf("failed to create logger: %w", err)
@@ -63,10 +64,15 @@ func Execute() error {
 
 	// Create fx application with all required modules
 	app := fx.New(
-		// Configure logging
+		// Configure logging - reduce fx verbosity
 		fx.WithLogger(func(log *zap.Logger) fxevent.Logger {
-			return &fxevent.ZapLogger{Logger: log}
+			return &fxevent.ZapLogger{
+				Logger: log.WithOptions(zap.IncreaseLevel(zap.WarnLevel)),
+			}
 		}),
+
+		// Suppress fx logging during normal operation
+		fx.NopLogger,
 
 		// Add the logger module
 		NewLoggerModule(),

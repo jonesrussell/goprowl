@@ -114,6 +114,10 @@ func displayJSON(docs []engine.Document) error {
 	return encoder.Encode(docs)
 }
 
+func formatTime(t time.Time) string {
+	return t.Format("2006-01-02 15:04:05")
+}
+
 func displayTable(docs []engine.Document) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintf(w, "URL\tTitle\tType\tCreated\n")
@@ -122,11 +126,16 @@ func displayTable(docs []engine.Document) error {
 	for _, doc := range docs {
 		content := doc.Content()
 		metadata := doc.Metadata()
-		fmt.Fprintf(w, "%s\t%s\t%s\t%v\n",
+		createdAt, ok := metadata["created_at"].(time.Time)
+		if !ok {
+			createdAt = time.Now() // fallback if time parsing fails
+		}
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 			content["url"],
 			content["title"],
 			doc.Type(),
-			metadata["created_at"],
+			formatTime(createdAt),
 		)
 	}
 	return w.Flush()

@@ -7,6 +7,7 @@ Always integrate uber-fx with Cobra commands properly:
   - Handle both fx.App and cobra.Command errors appropriately
 
 Utilize github.com/gocolly/colly/v2 for web crawling
+Always use github.com/gocolly/colly/v2/debug for debugging
 Always use bleve/v2 for search engine functionality
 Always use sync.RWMutex for concurrent operations in storage implementations
 Always implement proper error handling and avoid panics

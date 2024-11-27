@@ -2,6 +2,10 @@ package cmd
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/jonesrussell/goprowl/internal/app"
 	"github.com/spf13/cobra"
@@ -20,40 +24,74 @@ configurable storage backends.`,
 }
 
 func Execute() error {
+	// Create a cancellable context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle interrupt signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		fmt.Println("\nReceived interrupt signal. Shutting down...")
+		cancel()
+	}()
+
+	// Create the application
 	application := fx.New(
 		app.Module,
 		fx.NopLogger,
 	)
 
-	if err := application.Start(context.Background()); err != nil {
-		return err
+	// Start the application
+	if err := application.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start application: %w", err)
 	}
-	defer application.Stop(context.Background())
+	defer func() {
+		if err := application.Stop(ctx); err != nil {
+			fmt.Printf("Error stopping application: %v\n", err)
+		}
+	}()
 
+	// Add commands
 	rootCmd.AddCommand(
 		NewCrawlCmd(),
 		NewSearchCmd(),
 		NewListCmd(),
 	)
 
-	return rootCmd.Execute()
+	// Execute the root command
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Run executes a function with dependency injection
+func Run(fn interface{}) error {
+	application := fx.New(
+		app.Module,
+		fx.Invoke(fn),
+		fx.NopLogger,
+	)
+
+	// Start the application with context
+	ctx := context.Background()
+	if err := application.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start application: %w", err)
+	}
+
+	// Ensure application is stopped
+	defer func() {
+		if err := application.Stop(ctx); err != nil {
+			fmt.Printf("Error stopping application: %v\n", err)
+		}
+	}()
+
+	return nil
 }
 
 var Module = fx.Module("root",
 	app.Module,
 )
-
-func Run(fn interface{}) error {
-	app := fx.New(
-		Module,
-		fx.Invoke(fn),
-		fx.NopLogger,
-	)
-
-	if err := app.Start(context.Background()); err != nil {
-		return err
-	}
-	defer app.Stop(context.Background())
-
-	return nil
-}

@@ -14,6 +14,7 @@ import (
 type ConfigOptions struct {
 	URL      string
 	MaxDepth int
+	Debug    bool
 }
 
 // Config holds crawler configuration
@@ -42,12 +43,17 @@ func NewConfig(opts *ConfigOptions) *Config {
 
 // NewCrawlerFromConfig creates a new CollyCrawler from configuration
 func NewCrawlerFromConfig(config *Config, metrics *metrics.ComponentMetrics) *CollyCrawler {
-	c := colly.NewCollector(
+	opts := []colly.CollectorOption{
 		colly.MaxDepth(config.MaxDepth),
 		colly.Async(true),
 		colly.UserAgent(config.UserAgent),
-		colly.Debugger(&debug.LogDebugger{}),
-	)
+	}
+
+	if config.Debug {
+		opts = append(opts, colly.Debugger(&debug.LogDebugger{}))
+	}
+
+	c := colly.NewCollector(opts...)
 
 	fmt.Printf("Configured crawler with MaxDepth: %d\n", config.MaxDepth)
 

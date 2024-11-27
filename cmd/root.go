@@ -9,23 +9,28 @@ import (
 	"time"
 
 	"github.com/jonesrussell/goprowl/internal/app"
+	"github.com/jonesrussell/goprowl/metrics"
+	"github.com/jonesrussell/goprowl/search/crawlers"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
+	"go.uber.org/fx/fxevent"
 	"go.uber.org/zap"
 )
 
-var rootCmd = &cobra.Command{
-	Use:   "goprowl",
-	Short: "GoProwl is a web crawler and search engine",
-	Long: `A flexible web crawler and search engine built with Go 
+var (
+	rootCmd = &cobra.Command{
+		Use:   "goprowl",
+		Short: "GoProwl is a web crawler and search engine",
+		Long: `A flexible web crawler and search engine built with Go 
 that supports full-text search, concurrent crawling, and 
 configurable storage backends.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return cmd.Help()
-	},
-}
-
-var logger *zap.Logger
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
+	}
+	// Global logger instance
+	globalLogger *zap.Logger
+)
 
 // LoggerModule provides the application-wide logger
 func NewLoggerModule() fx.Option {
@@ -35,27 +40,54 @@ func NewLoggerModule() fx.Option {
 				config := zap.NewProductionConfig()
 				config.OutputPaths = []string{"stdout"}
 				config.ErrorOutputPaths = []string{"stderr"}
-				return config.Build()
+				logger, err := config.Build()
+				if err != nil {
+					return nil, fmt.Errorf("failed to create logger: %w", err)
+				}
+				globalLogger = logger
+				zap.ReplaceGlobals(logger)
+				return logger, nil
 			},
 		),
 	)
 }
 
 func Execute() error {
-	// Create fx application with logger module
+	// Create base logger for startup
+	var err error
+	globalLogger, err = zap.NewProduction()
+	if err != nil {
+		return fmt.Errorf("failed to create startup logger: %w", err)
+	}
+	defer globalLogger.Sync()
+
+	// Create fx application with all required modules
 	app := fx.New(
-		NewLoggerModule(),
-		app.Module, // This will now receive the logger through DI
-		fx.Invoke(func(log *zap.Logger) {
-			logger = log // Store logger in package variable for root command
+		// Configure logging
+		fx.WithLogger(func(log *zap.Logger) fxevent.Logger {
+			return &fxevent.ZapLogger{Logger: log}
 		}),
+
+		// Add the logger module
+		NewLoggerModule(),
+
+		// Add other modules that depend on the logger
+		app.Module,
+		metrics.Module,
+		crawlers.Module,
+
+		// Configure error handling
+		fx.NopLogger,
 	)
 
-	// Start fx application
-	if err := app.Start(context.Background()); err != nil {
+	// Start the application
+	startCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := app.Start(startCtx); err != nil {
+		globalLogger.Error("failed to start application", zap.Error(err))
 		return fmt.Errorf("failed to start application: %w", err)
 	}
-	defer app.Stop(context.Background())
 
 	// Create a cancellable context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -73,16 +105,16 @@ func Execute() error {
 	go func() {
 		select {
 		case sig := <-sigChan:
-			logger.Info("received signal, initiating graceful shutdown",
+			globalLogger.Info("received signal, initiating graceful shutdown",
 				zap.String("signal", sig.String()))
 			cancel()
 
 			select {
 			case sig := <-sigChan:
-				logger.Fatal("received second signal, force quitting",
+				globalLogger.Fatal("received second signal, force quitting",
 					zap.String("signal", sig.String()))
 			case <-time.After(10 * time.Second):
-				logger.Fatal("graceful shutdown timed out, force quitting")
+				globalLogger.Fatal("graceful shutdown timed out, force quitting")
 			}
 		case <-signalCtx.Done():
 			return
@@ -99,11 +131,11 @@ func Execute() error {
 	// Execute with context and handle any errors
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		signalCancel() // Clean up signal handler
-		logger.Error("execution error", zap.Error(err))
+		globalLogger.Error("execution error", zap.Error(err))
 		return fmt.Errorf("execution error: %w", err)
 	}
 
 	signalCancel() // Clean up signal handler
-	logger.Info("application completed successfully")
+	globalLogger.Info("application completed successfully")
 	return nil
 }

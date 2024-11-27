@@ -15,12 +15,14 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 var (
 	rootCmd = &cobra.Command{
 		Use:   "goprowl",
 		Short: "GoProwl is a web crawler and search engine",
+
 		Long: `A flexible web crawler and search engine built with Go 
 that supports full-text search, concurrent crawling, and 
 configurable storage backends.`,
@@ -32,15 +34,39 @@ configurable storage backends.`,
 	globalLogger *zap.Logger
 )
 
+// GetRootCmd returns the root command instance
+func GetRootCmd() *cobra.Command {
+	return rootCmd
+}
+
 // LoggerModule provides the application-wide logger
 func NewLoggerModule() fx.Option {
 	return fx.Module("logger",
 		fx.Provide(
 			func() (*zap.Logger, error) {
-				config := zap.NewProductionConfig()
+				// Check if debug flag is set via cobra command
+				debug := false
+				if cmd := GetRootCmd(); cmd != nil {
+					debug, _ = cmd.Flags().GetBool("debug")
+				}
+
+				var config zap.Config
+				if debug {
+					// Debug configuration with more details
+					config = zap.NewDevelopmentConfig()
+					config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
+					config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+					config.EncoderConfig.TimeKey = "ts"
+					config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+				} else {
+					// Production configuration
+					config = zap.NewProductionConfig()
+					config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
+				}
+
 				config.OutputPaths = []string{"stdout"}
 				config.ErrorOutputPaths = []string{"stderr"}
-				config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
+
 				logger, err := config.Build()
 				if err != nil {
 					return nil, fmt.Errorf("failed to create logger: %w", err)

@@ -27,6 +27,11 @@ type MetricsCollector struct {
 	responseSizes       *prometheus.HistogramVec
 	requestDurations    *prometheus.HistogramVec
 
+	// List command metrics
+	listOperationDuration *prometheus.HistogramVec
+	listOperationErrors   *prometheus.CounterVec
+	indexedDocuments      *prometheus.GaugeVec
+
 	// Add other application metrics here
 }
 
@@ -63,6 +68,19 @@ func NewMetricsCollector(config Config) (*MetricsCollector, error) {
 			Help:    "Duration of HTTP requests in seconds",
 			Buckets: prometheus.DefBuckets,
 		}, []string{"component_id"}),
+		listOperationDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "goprowl_list_operation_duration_seconds",
+			Help:    "Duration of list operations in seconds",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"component_id"}),
+		listOperationErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "goprowl_list_operation_errors_total",
+			Help: "Total number of list operation errors",
+		}, []string{"component_id"}),
+		indexedDocuments: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "goprowl_indexed_documents_total",
+			Help: "Total number of indexed documents",
+		}, []string{"component_id"}),
 	}
 
 	// Register metrics with prometheus only once
@@ -85,6 +103,9 @@ func NewMetricsCollector(config Config) (*MetricsCollector, error) {
 			collector.totalErrors,
 			collector.responseSizes,
 			collector.requestDurations,
+			collector.listOperationDuration,
+			collector.listOperationErrors,
+			collector.indexedDocuments,
 		)
 	})
 

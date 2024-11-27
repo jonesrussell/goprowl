@@ -41,6 +41,63 @@ metrics/: Application metrics and monitoring
 cmd/root.go: Main application setup and fx integration
 cmd/<command>.go: Individual command implementations with proper DI
 
+# Cobra CLI Standards
+Always follow these standards for Cobra commands:
+- Use short and long flags consistently (-v, --verbose)
+- Include command descriptions and examples
+- Implement proper flag validation
+- Use RunE instead of Run for error handling
+- Follow naming convention: New<Command>Cmd()
+- Include required flags using MarkFlagRequired()
+- Group related flags using Flag Groups when applicable
+- Implement proper context handling
+- Include completion commands where appropriate
+
+# Command Documentation
+Each command should include:
+- Short description (one line)
+- Long description (detailed usage)
+- Example usage
+- Flag descriptions
+- Required/optional status for each flag
+
+# Command Error Handling
+- Return errors rather than calling os.Exit
+- Use fmt.Errorf with %w for error wrapping
+- Include context in error messages
+- Handle flag validation before execution
+- Implement proper cleanup in error cases
+
+# Command Testing
+- Test flag parsing
+- Test command execution
+- Mock dependencies using interfaces
+- Test error conditions
+- Include integration tests for commands
+
+# Command Metrics
+- Track command execution time
+- Record command usage statistics
+- Monitor error rates
+- Include command-specific metrics
+
+# Command Logging
+- Use structured logging with zap
+- Include command context in logs
+- Use appropriate log levels
+- Log command start/completion
+- Include relevant command parameters in logs
+
+# Debug Mode Standards
+When debug flag (-v, --verbose) is enabled:
+- Show full dependency injection logs
+- Use development logger configuration
+- Include debug level messages
+- Show detailed timestamps
+- Include caller information
+- Display colored log output
+- Show full error stack traces
+
 # Logging Standards
 Always use structured logging with zap
 Include relevant context in log fields

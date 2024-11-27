@@ -19,7 +19,7 @@ type BasicSearchEngine struct {
 	index   bleve.Index
 }
 
-func (e *BasicSearchEngine) Search(query Query) (*SearchResult, error) {
+func (e *BasicSearchEngine) Search(query Query) (*SearchResults, error) {
 	docs, err := e.storage.GetAll(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get documents: %w", err)
@@ -40,12 +40,11 @@ func (e *BasicSearchEngine) Search(query Query) (*SearchResult, error) {
 		}
 
 		if score > 0 {
-			// Convert storage document to Document interface
 			scored = append(scored, struct {
 				doc   Document
 				score float64
 			}{
-				doc:   NewBasicDocument(doc), // We'll create this helper
+				doc:   NewBasicDocument(doc),
 				score: score,
 			})
 		}
@@ -64,14 +63,19 @@ func (e *BasicSearchEngine) Search(query Query) (*SearchResult, error) {
 		end = len(scored)
 	}
 
-	hits := make([]Document, 0)
+	// Convert scored documents to SearchResults
+	hits := make([]SearchResult, 0)
 	if start < end {
 		for _, s := range scored[start:end] {
-			hits = append(hits, s.doc)
+			hits = append(hits, SearchResult{
+				Content:  s.doc.Content(),
+				Score:    s.score,
+				Metadata: s.doc.Metadata(),
+			})
 		}
 	}
 
-	// Create facets (example with content type facet)
+	// Create facets
 	facets := make(map[string][]Facet)
 	typeCounts := make(map[string]int64)
 	for _, doc := range docs {
@@ -87,7 +91,7 @@ func (e *BasicSearchEngine) Search(query Query) (*SearchResult, error) {
 	}
 	facets["type"] = typeFacets
 
-	return &SearchResult{
+	return &SearchResults{
 		Hits:   hits,
 		Facets: facets,
 		Metadata: map[string]interface{}{
@@ -324,13 +328,13 @@ func (e *BasicSearchEngine) SearchWithOptions(ctx context.Context, opts SearchOp
 	query.SetPagination(opts.Page, opts.PageSize)
 
 	// Use existing Search method
-	result, err := e.Search(query)
+	results, err := e.Search(query)
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert single result to slice for compatibility
-	return []SearchResult{*result}, nil
+	// Return the hits directly
+	return results.Hits, nil
 }
 
 // GetTotalResults implements the SearchEngine interface
@@ -380,4 +384,33 @@ func (e *BasicSearchEngine) List() ([]Document, error) {
 	}
 
 	return results, nil
+}
+
+// Clear implements the SearchEngine interface by removing all documents
+func (e *BasicSearchEngine) Clear() error {
+	// Clear the bleve index
+	if err := e.index.Close(); err != nil {
+		return fmt.Errorf("failed to close index: %w", err)
+	}
+
+	// Create new empty index
+	indexMapping := mapping.NewIndexMapping()
+	newIndex, err := bleve.NewMemOnly(indexMapping)
+	if err != nil {
+		return fmt.Errorf("failed to create new index: %w", err)
+	}
+	e.index = newIndex
+
+	// Clear the storage
+	if err := e.storage.Clear(context.Background()); err != nil {
+		return fmt.Errorf("failed to clear storage: %w", err)
+	}
+
+	// Reset stats
+	e.stats = &SearchStats{
+		LastIndexed:   time.Now(),
+		DocumentCount: 0,
+	}
+
+	return nil
 }

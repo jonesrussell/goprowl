@@ -4,21 +4,40 @@ Copyright © 2024 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
-	"github.com/jonesrussell/goprowl/internal/app"
+	"fmt"
+
+	"github.com/jonesrussell/goprowl/search/engine"
 	"github.com/spf13/cobra"
 )
 
-var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all indexed documents",
-	Long:  `Display all documents currently stored in the index.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return Run(func(application *app.Application) error {
-			return application.ListDocuments()
-		})
-	},
-}
+func NewListCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List all indexed documents",
+		Long:  `Display a list of all documents that have been crawled and indexed.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return Run(func(engine engine.SearchEngine) error {
+				docs, err := engine.List()
+				if err != nil {
+					return fmt.Errorf("failed to list documents: %w", err)
+				}
 
-func init() {
-	rootCmd.AddCommand(listCmd)
+				// Format and display documents
+				fmt.Printf("Found %d documents:\n\n", len(docs))
+				for _, doc := range docs {
+					content := doc.Content()
+					fmt.Printf("Title: %s\n", content["title"])
+					fmt.Printf("URL: %s\n", content["url"])
+					fmt.Printf("Type: %s\n", doc.Type())
+					if createdAt, ok := doc.Metadata()["created_at"]; ok {
+						fmt.Printf("Created: %s\n", createdAt)
+					}
+					fmt.Println("---")
+				}
+				return nil
+			})
+		},
+	}
+
+	return cmd
 }

@@ -56,10 +56,10 @@ func (app *Application) Search(queryStr string) error {
 	total := results.Metadata["total"].(int64)
 	fmt.Printf("Found %d results:\n\n", total)
 	for _, hit := range results.Hits {
-		content := hit.Content()
+		content := hit.Content
 		fmt.Printf("Title: %s\n", content["title"])
 		fmt.Printf("URL: %s\n", content["url"])
-		fmt.Printf("Type: %s\n", hit.Type())
+		fmt.Printf("Type: %s\n", content["type"])
 		fmt.Println("---")
 	}
 
@@ -79,7 +79,9 @@ func (app *Application) ListDocuments() error {
 		fmt.Printf("Title: %s\n", content["title"])
 		fmt.Printf("URL: %s\n", content["url"])
 		fmt.Printf("Type: %s\n", doc.Type())
-		fmt.Printf("Created: %s\n", doc.Metadata()["created_at"])
+		if createdAt, ok := doc.Metadata()["created_at"]; ok {
+			fmt.Printf("Created: %s\n", createdAt)
+		}
 		fmt.Println("---")
 	}
 
@@ -99,8 +101,13 @@ func (app *Application) Run(ctx context.Context) error {
 	crawlCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	// Use the config's StartURL with context
-	if err := app.crawler.Crawl(crawlCtx, app.config.StartURL); err != nil {
+	// Clear existing data before crawling
+	if err := app.engine.Clear(); err != nil {
+		return fmt.Errorf("failed to clear existing data: %w", err)
+	}
+
+	// Pass both StartURL and MaxDepth from config
+	if err := app.crawler.Crawl(crawlCtx, app.config.StartURL, app.config.MaxDepth); err != nil {
 		return fmt.Errorf("crawl failed: %w", err)
 	}
 	return nil

@@ -33,6 +33,5 @@ func NewCrawlerFromConfig(config *Config) *CollyCrawler {
 
 	return &CollyCrawler{
 		collector: c,
-		maxDepth:  config.MaxDepth,
 	}
 }

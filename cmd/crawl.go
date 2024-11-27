@@ -5,49 +5,34 @@ package cmd
 
 import (
 	"context"
-	"log"
 
-	"github.com/jonesrussell/goprowl/internal/app"
+	"github.com/jonesrussell/goprowl/search/crawlers"
 	"github.com/spf13/cobra"
-	"go.uber.org/fx"
 )
 
-var (
-	startURL string
-	maxDepth int
-)
-
-var crawlCmd = &cobra.Command{
-	Use:   "crawl",
-	Short: "Start crawling from a given URL",
-	Long: `Crawl starts from the specified URL and indexes all pages 
-found within the maximum depth limit.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fxApp := fx.New(
-			app.StorageModule,
-			app.EngineModule,
-			app.CrawlerModule,
-			fx.Provide(
-				func() *app.Config {
-					return &app.Config{
-						StartURL: startURL,
-						MaxDepth: maxDepth,
-					}
-				},
-				app.NewApplication,
-			),
-			fx.Invoke(func(application *app.Application) {
-				if err := application.Run(context.Background()); err != nil {
-					log.Printf("Error running application: %v", err)
-				}
-			}),
-		)
-		fxApp.Run()
-	},
+type crawlOptions struct {
+	url   string
+	depth int
 }
 
-func init() {
-	rootCmd.AddCommand(crawlCmd)
-	crawlCmd.Flags().StringVarP(&startURL, "url", "u", "https://go.dev", "The URL to start crawling from")
-	crawlCmd.Flags().IntVarP(&maxDepth, "depth", "d", 3, "Maximum crawl depth")
+func NewCrawlCmd() *cobra.Command {
+	opts := &crawlOptions{}
+
+	cmd := &cobra.Command{
+		Use:   "crawl",
+		Short: "Start crawling from a given URL",
+		Long:  `Crawl a website starting from the specified URL up to the given depth.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return Run(func(crawler crawlers.Crawler) error {
+				return crawler.Crawl(context.Background(), opts.url, opts.depth)
+			})
+		},
+	}
+
+	// Add flags
+	cmd.Flags().StringVarP(&opts.url, "url", "u", "", "Starting URL for crawling (required)")
+	cmd.Flags().IntVarP(&opts.depth, "depth", "d", 1, "Maximum crawl depth")
+	cmd.MarkFlagRequired("url")
+
+	return cmd
 }

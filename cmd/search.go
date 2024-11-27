@@ -4,47 +4,59 @@ Copyright © 2024 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
-	"log"
+	"fmt"
 
-	"github.com/jonesrussell/goprowl/internal/app"
+	"github.com/jonesrussell/goprowl/search/engine"
 	"github.com/spf13/cobra"
-	"go.uber.org/fx"
 )
 
-var query string
+func NewSearchCmd() *cobra.Command {
+	var query string
 
-var searchCmd = &cobra.Command{
-	Use:   "search",
-	Short: "Search indexed documents",
-	Long: `Search through indexed documents using various query types:
-- Phrase matching: "exact phrase"
-- Boolean operators: term1 AND term2, NOT term
-- Fuzzy matching: word~2
-- Field search: title:word`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fxApp := fx.New(
-			app.StorageModule,
-			app.EngineModule,
-			app.CrawlerModule,
-			fx.Provide(
-				func() *app.Config {
-					return &app.Config{}
-				},
-				app.NewApplication,
-			),
-			fx.Invoke(func(application *app.Application) {
-				if err := application.Search(query); err != nil {
-					log.Printf("Error searching documents: %v", err)
+	cmd := &cobra.Command{
+		Use:   "search",
+		Short: "Search indexed documents",
+		Long:  `Search through crawled and indexed documents using keywords.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return Run(func(searchEngine engine.SearchEngine) error {
+				// Create query processor directly from the engine package
+				processor := engine.NewQueryProcessor()
+				searchQuery, err := processor.ParseQuery(query)
+				if err != nil {
+					return fmt.Errorf("failed to parse query: %w", err)
 				}
-			}),
-		)
 
-		fxApp.Run()
-	},
-}
+				// Set pagination
+				searchQuery.SetPagination(1, 10)
 
-func init() {
-	rootCmd.AddCommand(searchCmd)
-	searchCmd.Flags().StringVarP(&query, "query", "q", "", "Search query")
-	searchCmd.MarkFlagRequired("query")
+				// Perform search
+				results, err := searchEngine.Search(searchQuery)
+				if err != nil {
+					return fmt.Errorf("search failed: %w", err)
+				}
+
+				// Display search results
+
+				total := results.Metadata["total"].(int64)
+				fmt.Printf("Found %d results:\n\n", total)
+				for _, hit := range results.Hits {
+					content := hit.Content
+					fmt.Printf("Title: %s\n", content["title"])
+					fmt.Printf("URL: %s\n", content["url"])
+					if snippet, ok := content["snippet"].(string); ok {
+						fmt.Printf("Snippet: %s\n", snippet)
+					}
+					fmt.Printf("Score: %.2f\n", hit.Score)
+					fmt.Println("---")
+				}
+
+				return nil
+			})
+		},
+	}
+
+	cmd.Flags().StringVarP(&query, "query", "q", "", "Search query (required)")
+	cmd.MarkFlagRequired("query")
+
+	return cmd
 }

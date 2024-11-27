@@ -9,7 +9,6 @@ import (
 // CollyCrawler implements web crawling using colly
 type CollyCrawler struct {
 	collector *colly.Collector
-	maxDepth  int
 }
 
 // NewCollyCrawler creates a new Crawler implementation
@@ -20,12 +19,14 @@ func NewCollyCrawler(maxDepth int) Crawler {
 
 	return &CollyCrawler{
 		collector: c,
-		maxDepth:  maxDepth,
 	}
 }
 
 // Crawl implements the crawling logic
-func (c *CollyCrawler) Crawl(ctx context.Context, startURL string) error {
+func (c *CollyCrawler) Crawl(ctx context.Context, startURL string, depth int) error {
+	// Update collector depth
+	c.collector.MaxDepth = depth
+
 	// Set up context handling
 	go func() {
 		<-ctx.Done()

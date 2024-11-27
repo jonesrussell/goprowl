@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/blevesearch/bleve/v2"
@@ -219,4 +220,27 @@ func (s *BleveStorage) GetAll(ctx context.Context) ([]*storage.Document, error) 
 	}
 
 	return docs, nil
+}
+
+// Clear implements the StorageAdapter interface
+func (s *BleveStorage) Clear(ctx context.Context) error {
+	// Close the current index
+	if err := s.index.Close(); err != nil {
+		return fmt.Errorf("failed to close index: %w", err)
+	}
+
+	// Delete the index directory
+	if err := os.RemoveAll(s.path); err != nil {
+		return fmt.Errorf("failed to remove index directory: %w", err)
+	}
+
+	// Create a new empty index
+	mapping := createMapping()
+	index, err := bleve.New(s.path, mapping)
+	if err != nil {
+		return fmt.Errorf("failed to create new index: %w", err)
+	}
+	s.index = index
+
+	return nil
 }

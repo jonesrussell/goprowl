@@ -14,18 +14,27 @@ var rootCmd = &cobra.Command{
 	Long: `A flexible web crawler and search engine built with Go 
 that supports full-text search, concurrent crawling, and 
 configurable storage backends.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return cmd.Help()
+	},
 }
 
 func Execute() error {
-	app := fx.New(
+	application := fx.New(
 		app.Module,
 		fx.NopLogger,
 	)
 
-	if err := app.Start(context.Background()); err != nil {
+	if err := application.Start(context.Background()); err != nil {
 		return err
 	}
-	defer app.Stop(context.Background())
+	defer application.Stop(context.Background())
+
+	rootCmd.AddCommand(
+		NewCrawlCmd(),
+		NewSearchCmd(),
+		NewListCmd(),
+	)
 
 	return rootCmd.Execute()
 }

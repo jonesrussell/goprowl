@@ -68,8 +68,11 @@ func runCrawl(ctx context.Context, opts *CrawlOptions) error {
 func createApp(opts *CrawlOptions) *fx.App {
 	return fx.New(
 		fx.WithLogger(func(log *zap.Logger) fxevent.Logger {
-			return &fxevent.ZapLogger{Logger: log}
+			return &fxevent.ZapLogger{
+				Logger: log.WithOptions(zap.IncreaseLevel(zap.WarnLevel)),
+			}
 		}),
+		fx.NopLogger,
 		NewLoggerModule(),
 		fx.Provide(
 			func() *crawlers.ConfigOptions {

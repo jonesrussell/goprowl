@@ -54,5 +54,5 @@
 		}
 	},
 	"forwardPorts": [9090, 2112],
-	"runServices": ["app", "prometheus"]
+	"runServices": ["app", "prometheus", "pushgateway"]
 }

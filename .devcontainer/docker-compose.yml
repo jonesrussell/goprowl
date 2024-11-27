@@ -26,6 +26,14 @@ services:
     networks:
       - goprowl
 
+  pushgateway:
+    image: prom/pushgateway:latest
+    ports:
+      - "9091:9091"
+    networks:
+      - goprowl
+    restart: unless-stopped
+
 networks:
   goprowl:
     driver: bridge

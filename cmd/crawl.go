@@ -93,6 +93,7 @@ func createApp(opts *CrawlOptions) *fx.App {
 			shutdowner fx.Shutdowner,
 			crawler crawlers.Crawler,
 			storageAdapter *storage.StorageAdapter,
+			metrics *metrics.ComponentMetrics,
 			logger *zap.Logger,
 		) error {
 			lifecycle.Append(fx.Hook{

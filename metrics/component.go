@@ -13,15 +13,17 @@ type ComponentMetrics struct {
 	collector     *MetricsCollector
 	componentID   string
 	componentType string
+	logger        *zap.Logger
 }
 
 // NewComponentMetrics creates metrics for a specific component
-func NewComponentMetrics(collector *MetricsCollector, componentType string) *ComponentMetrics {
+func NewComponentMetrics(collector *MetricsCollector, componentType string, logger *zap.Logger) *ComponentMetrics {
 	id := fmt.Sprintf("component-%d", time.Now().UnixNano())
 	return &ComponentMetrics{
 		collector:     collector,
 		componentID:   id,
 		componentType: componentType,
+		logger:        logger,
 	}
 }
 
@@ -29,7 +31,7 @@ func NewComponentMetrics(collector *MetricsCollector, componentType string) *Com
 func (m *ComponentMetrics) IncrementActiveRequests() {
 	m.collector.mu.Lock()
 	defer m.collector.mu.Unlock()
-	m.collector.logger.Debug("incrementing active requests",
+	m.logger.Debug("incrementing active requests",
 		zap.String("component_id", m.componentID),
 		zap.String("component_type", m.componentType))
 	m.collector.totalActiveRequests.WithLabelValues(m.componentID, m.componentType).Inc()
@@ -39,7 +41,7 @@ func (m *ComponentMetrics) IncrementActiveRequests() {
 func (m *ComponentMetrics) DecrementActiveRequests() {
 	m.collector.mu.Lock()
 	defer m.collector.mu.Unlock()
-	m.collector.logger.Debug("decrementing active requests",
+	m.logger.Debug("decrementing active requests",
 		zap.String("component_id", m.componentID),
 		zap.String("component_type", m.componentType))
 	m.collector.totalActiveRequests.WithLabelValues(m.componentID, m.componentType).Dec()
@@ -49,7 +51,7 @@ func (m *ComponentMetrics) DecrementActiveRequests() {
 func (m *ComponentMetrics) IncrementErrorCount() {
 	m.collector.mu.Lock()
 	defer m.collector.mu.Unlock()
-	m.collector.logger.Debug("incrementing error count",
+	m.logger.Debug("incrementing error count",
 		zap.String("component_id", m.componentID),
 		zap.String("component_type", m.componentType))
 	m.collector.totalErrors.WithLabelValues(m.componentID, m.componentType).Inc()
@@ -59,7 +61,7 @@ func (m *ComponentMetrics) IncrementErrorCount() {
 func (m *ComponentMetrics) IncrementPagesProcessed() {
 	m.collector.mu.Lock()
 	defer m.collector.mu.Unlock()
-	m.collector.logger.Debug("incrementing pages processed",
+	m.logger.Debug("incrementing pages processed",
 		zap.String("component_id", m.componentID),
 		zap.String("component_type", m.componentType))
 	m.collector.totalPagesProcessed.WithLabelValues(m.componentID, m.componentType).Inc()
@@ -69,7 +71,7 @@ func (m *ComponentMetrics) IncrementPagesProcessed() {
 func (m *ComponentMetrics) ObserveResponseSize(size float64) {
 	m.collector.mu.Lock()
 	defer m.collector.mu.Unlock()
-	m.collector.logger.Debug("observing response size",
+	m.logger.Debug("observing response size",
 		zap.String("component_id", m.componentID),
 		zap.String("component_type", m.componentType))
 	m.collector.responseSizes.WithLabelValues(m.componentID).Observe(size)
@@ -79,7 +81,7 @@ func (m *ComponentMetrics) ObserveResponseSize(size float64) {
 func (m *ComponentMetrics) ObserveRequestDuration(duration float64) {
 	m.collector.mu.Lock()
 	defer m.collector.mu.Unlock()
-	m.collector.logger.Debug("observing request duration",
+	m.logger.Debug("observing request duration",
 		zap.String("component_id", m.componentID),
 		zap.String("component_type", m.componentType))
 	m.collector.requestDurations.WithLabelValues(m.componentID, m.componentType).Observe(duration)
@@ -91,7 +93,7 @@ func (m *ComponentMetrics) ObserveRequestDuration(duration float64) {
 func (m *ComponentMetrics) ObserveHistogram(name string, value float64) {
 	m.collector.mu.Lock() // Use the collector's mutex instead of undefined lockCollector
 	defer m.collector.mu.Unlock()
-	m.collector.logger.Debug("observing histogram",
+	m.logger.Debug("observing histogram",
 		zap.String("component_id", m.componentID),
 		zap.String("component_type", m.componentType))
 
@@ -99,7 +101,7 @@ func (m *ComponentMetrics) ObserveHistogram(name string, value float64) {
 	case "list_documents_duration_seconds":
 		m.collector.listOperationDuration.WithLabelValues(m.componentID).Observe(value)
 	default:
-		m.collector.logger.Warn("unknown histogram metric", zap.String("name", name))
+		m.logger.Warn("unknown histogram metric", zap.String("name", name))
 	}
 }
 
@@ -107,7 +109,7 @@ func (m *ComponentMetrics) ObserveHistogram(name string, value float64) {
 func (m *ComponentMetrics) IncCounter(name string, value float64) {
 	m.collector.mu.Lock()
 	defer m.collector.mu.Unlock()
-	m.collector.logger.Debug("incrementing counter",
+	m.logger.Debug("incrementing counter",
 		zap.String("component_id", m.componentID),
 		zap.String("component_type", m.componentType))
 
@@ -115,7 +117,7 @@ func (m *ComponentMetrics) IncCounter(name string, value float64) {
 	case "list_documents_errors_total":
 		m.collector.listOperationErrors.WithLabelValues(m.componentID).Add(value)
 	default:
-		m.collector.logger.Warn("unknown counter metric", zap.String("name", name))
+		m.logger.Warn("unknown counter metric", zap.String("name", name))
 	}
 }
 
@@ -123,7 +125,7 @@ func (m *ComponentMetrics) IncCounter(name string, value float64) {
 func (m *ComponentMetrics) SetGaugeValue(name string, value float64) {
 	m.collector.mu.Lock()
 	defer m.collector.mu.Unlock()
-	m.collector.logger.Debug("setting gauge value",
+	m.logger.Debug("setting gauge value",
 		zap.String("component_id", m.componentID),
 		zap.String("component_type", m.componentType))
 
@@ -131,7 +133,7 @@ func (m *ComponentMetrics) SetGaugeValue(name string, value float64) {
 	case "indexed_documents_total":
 		m.collector.indexedDocuments.WithLabelValues(m.componentID).Set(value)
 	default:
-		m.collector.logger.Warn("unknown gauge metric", zap.String("name", name))
+		m.logger.Warn("unknown gauge metric", zap.String("name", name))
 	}
 }
 
@@ -141,7 +143,7 @@ func (m *ComponentMetrics) SetGaugeValue(name string, value float64) {
 func (m *ComponentMetrics) IncrementActiveRequestsWithLabel(label string) {
 	m.collector.mu.Lock()
 	defer m.collector.mu.Unlock()
-	m.collector.logger.Debug("incrementing active requests with label",
+	m.logger.Debug("incrementing active requests with label",
 		zap.String("component_id", m.componentID),
 		zap.String("component_type", m.componentType))
 	m.collector.totalActiveRequests.WithLabelValues(label, m.componentType).Inc()
@@ -151,7 +153,7 @@ func (m *ComponentMetrics) IncrementActiveRequestsWithLabel(label string) {
 func (m *ComponentMetrics) IncrementPagesProcessedWithLabel(label string) {
 	m.collector.mu.Lock()
 	defer m.collector.mu.Unlock()
-	m.collector.logger.Debug("incrementing pages processed with label",
+	m.logger.Debug("incrementing pages processed with label",
 		zap.String("component_id", m.componentID),
 		zap.String("component_type", m.componentType))
 	m.collector.totalPagesProcessed.WithLabelValues(label, m.componentType).Inc()
@@ -161,7 +163,7 @@ func (m *ComponentMetrics) IncrementPagesProcessedWithLabel(label string) {
 func (m *ComponentMetrics) ResetActiveRequests() {
 	m.collector.mu.Lock()
 	defer m.collector.mu.Unlock()
-	m.collector.logger.Debug("resetting active requests",
+	m.logger.Debug("resetting active requests",
 		zap.String("component_id", m.componentID),
 		zap.String("component_type", m.componentType))
 	m.collector.totalActiveRequests.Reset()
@@ -171,7 +173,7 @@ func (m *ComponentMetrics) ResetActiveRequests() {
 func (m *ComponentMetrics) IncrementErrorCountWithLabel(label string) {
 	m.collector.mu.Lock()
 	defer m.collector.mu.Unlock()
-	m.collector.logger.Debug("incrementing error count with label",
+	m.logger.Debug("incrementing error count with label",
 		zap.String("component_id", m.componentID),
 		zap.String("component_type", m.componentType),
 		zap.String("label", label))
@@ -190,7 +192,7 @@ func (m *ComponentMetrics) Counter(name, help string, labelNames ...string) *pro
 	})
 
 	if err := m.collector.RegisterMetric(counter); err != nil {
-		m.collector.logger.Error("failed to register counter metric",
+		m.logger.Error("failed to register counter metric",
 			zap.String("name", name),
 			zap.Error(err))
 	}
@@ -210,7 +212,7 @@ func (m *ComponentMetrics) Gauge(name, help string, labelNames ...string) *prome
 	})
 
 	if err := m.collector.RegisterMetric(gauge); err != nil {
-		m.collector.logger.Error("failed to register gauge metric",
+		m.logger.Error("failed to register gauge metric",
 			zap.String("name", name),
 			zap.Error(err))
 	}
@@ -231,7 +233,7 @@ func (m *ComponentMetrics) Histogram(name, help string, buckets []float64, label
 	})
 
 	if err := m.collector.RegisterMetric(histogram); err != nil {
-		m.collector.logger.Error("failed to register histogram metric",
+		m.logger.Error("failed to register histogram metric",
 			zap.String("name", name),
 			zap.Error(err))
 	}

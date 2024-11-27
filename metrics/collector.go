@@ -17,7 +17,6 @@ var (
 )
 
 const (
-	namespace = "goprowl"
 	component = "component_id"
 )
 
@@ -206,8 +205,8 @@ func (c *MetricsCollector) GetPagesProcessed(componentID string) float64 {
 }
 
 // GetComponentMetrics creates a new ComponentMetrics instance
-func (c *MetricsCollector) GetComponentMetrics(componentType string) *ComponentMetrics {
-	return NewComponentMetrics(c, componentType)
+func (c *MetricsCollector) GetComponentMetrics(componentType string, logger *zap.Logger) *ComponentMetrics {
+	return NewComponentMetrics(c, componentType, logger)
 }
 
 // RegisterMetric registers a new metric with the collector

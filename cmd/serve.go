@@ -15,7 +15,6 @@ import (
 	"github.com/jonesrussell/goprowl/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/prometheus/common/model"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
@@ -63,18 +62,12 @@ func NewServeCmd() *cobra.Command {
 							return
 						}
 
-						logger.Debug("processing query",
-							zap.String("query", query))
-
 						registryMetrics, err := registry.Gather()
 						if err != nil {
 							logger.Error("Failed to gather metrics", zap.Error(err))
 							http.Error(w, "internal server error", http.StatusInternalServerError)
 							return
 						}
-
-						logger.Debug("gathered metrics",
-							zap.Int("count", len(registryMetrics)))
 
 						var result []struct {
 							Metric map[string]string `json:"metric"`
@@ -86,23 +79,13 @@ func NewServeCmd() *cobra.Command {
 						for _, mf := range registryMetrics {
 							metricName := *mf.Name
 							if matchesQuery(metricName, query) {
-								logger.Debug("found matching metric",
-									zap.String("metric", metricName))
-
 								for _, m := range mf.Metric {
-									labels := make(map[string]string)
-									for _, l := range m.Label {
-										labels[*l.Name] = *l.Value
-									}
-
-									labels["__name__"] = metricName
-
 									var value float64
 									switch {
-									case m.Counter != nil:
-										value = *m.Counter.Value
 									case m.Gauge != nil:
 										value = *m.Gauge.Value
+									case m.Counter != nil:
+										value = *m.Counter.Value
 									default:
 										continue
 									}
@@ -111,18 +94,22 @@ func NewServeCmd() *cobra.Command {
 										Metric map[string]string `json:"metric"`
 										Value  []interface{}     `json:"value"`
 									}{
-										Metric: labels,
+										Metric: map[string]string{"__name__": metricName},
 										Value: []interface{}{
 											timestamp,
-											model.SampleValue(value).String(),
+											fmt.Sprintf("%v", value),
 										},
 									})
 								}
 							}
 						}
 
-						logger.Debug("query results",
-							zap.Int("count", len(result)))
+						if debug {
+							logger.Debug("processed metric query",
+								zap.String("query", query),
+								zap.Int("total_metrics", len(registryMetrics)),
+								zap.Int("matching_results", len(result)))
+						}
 
 						response := metrics.QueryResponse{
 							Status: "success",
@@ -250,6 +237,6 @@ func NewServeCmd() *cobra.Command {
 }
 
 func matchesQuery(metricName, query string) bool {
-	queryName := strings.Split(query, "{")[0]
-	return strings.Contains(metricName, queryName)
+	// Simple exact match for metric names
+	return metricName == query
 }

@@ -92,8 +92,11 @@ func Execute() error {
 	app := fx.New(
 		// Configure logging - reduce fx verbosity
 		fx.WithLogger(func(log *zap.Logger) fxevent.Logger {
+			// Don't try to increase level, just create a new logger
 			return &fxevent.ZapLogger{
-				Logger: log.WithOptions(zap.IncreaseLevel(zap.WarnLevel)),
+				Logger: log.Named("fx").WithOptions(
+					zap.IncreaseLevel(zapcore.WarnLevel),
+				),
 			}
 		}),
 

@@ -66,13 +66,18 @@ func runCrawl(ctx context.Context, opts *CrawlOptions) error {
 
 // createApp initializes the fx application with the necessary modules and config.
 func createApp(opts *CrawlOptions) *fx.App {
-	return fx.New(
+	// Set logging level based on debug flag
+	logLevel := zap.WarnLevel
+	if opts.debug {
+		logLevel = zap.DebugLevel
+	}
+
+	options := []fx.Option{
 		fx.WithLogger(func(log *zap.Logger) fxevent.Logger {
 			return &fxevent.ZapLogger{
-				Logger: log.WithOptions(zap.IncreaseLevel(zap.WarnLevel)),
+				Logger: log.WithOptions(zap.IncreaseLevel(logLevel)),
 			}
 		}),
-		fx.NopLogger,
 		NewLoggerModule(),
 		fx.Provide(
 			func() *crawlers.ConfigOptions {
@@ -86,31 +91,36 @@ func createApp(opts *CrawlOptions) *fx.App {
 		metrics.Module,
 		app.Module,
 		crawlers.Module,
-		fx.Invoke(func(lc fx.Lifecycle, shutdowner fx.Shutdowner, crawler crawlers.Crawler, logger *zap.Logger) error {
-			ctx, cancel := context.WithCancel(context.Background())
-
-			lc.Append(fx.Hook{
-				OnStart: func(context.Context) error {
-					logger.Info("starting crawler",
-						zap.String("url", opts.url),
-						zap.Int("depth", opts.depth))
+		// Add lifecycle hook to handle crawler completion
+		fx.Invoke(func(lifecycle fx.Lifecycle, shutdowner fx.Shutdowner, crawler crawlers.Crawler, logger *zap.Logger) error {
+			lifecycle.Append(fx.Hook{
+				OnStart: func(ctx context.Context) error {
+					logger.Info("starting crawler", zap.String("url", opts.url), zap.Int("depth", opts.depth))
 
 					go func() {
 						if err := crawler.Crawl(ctx, opts.url, opts.depth); err != nil {
 							logger.Error("crawler failed", zap.Error(err))
 						}
-						logger.Info("initiating shutdown")
-						shutdowner.Shutdown()
+						// Signal shutdown after crawler completes
+						if err := shutdowner.Shutdown(); err != nil {
+							logger.Error("shutdown failed", zap.Error(err))
+						}
 					}()
 					return nil
 				},
-				OnStop: func(context.Context) error {
+				OnStop: func(ctx context.Context) error {
 					logger.Info("stopping crawler")
-					cancel()
 					return nil
 				},
 			})
 			return nil
 		}),
-	)
+	}
+
+	// Only add NopLogger in non-debug mode
+	if !opts.debug {
+		options = append(options, fx.NopLogger)
+	}
+
+	return fx.New(options...)
 }

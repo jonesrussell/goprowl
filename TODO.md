@@ -43,6 +43,8 @@
 - [x] Implement retry mechanism
 - [x] Add URL normalization
 - [x] Improve error handling
+- [x] Proper configuration management
+- [x] Dependency injection setup
 - [ ] Add crawl status reporting
 - [ ] Add metrics collection
 - [ ] Implement crawl queue persistence
@@ -68,8 +70,8 @@
 - [ ] Implement pagination
 
 ### 7. Monitoring & Management
-- [ ] Add logging system
-- [ ] Implement metrics collection
+- [x] Add basic logging system
+- [ ] Implement comprehensive metrics collection
 - [ ] Create health checks
 - [ ] Add monitoring endpoints
 - [ ] Create admin interface

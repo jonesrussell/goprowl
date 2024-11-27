@@ -38,6 +38,9 @@ type StorageAdapter interface {
 
 	// Search searches for documents based on a query
 	Search(ctx context.Context, query string) ([]*Document, error)
+
+	// Clear clears the storage
+	Clear(ctx context.Context) error
 }
 
 var ErrDocumentNotFound = fmt.Errorf("document not found")

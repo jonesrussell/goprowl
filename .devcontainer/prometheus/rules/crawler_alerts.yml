@@ -1,0 +1,20 @@
+groups:
+  - name: crawler_alerts
+    rules:
+      - alert: HighErrorRate
+        expr: rate(goprowl_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High crawler error rate"
+          description: "Crawler {{ $labels.crawler_id }} has high error rate"
+
+      - alert: StuckCrawler
+        expr: goprowl_active_requests > 0 and rate(goprowl_pages_processed_total[5m]) == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Crawler appears stuck"
+          description: "Crawler {{ $labels.crawler_id }} has active requests but no processed pages" 

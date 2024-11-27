@@ -38,9 +38,16 @@ type SearchOptions struct {
 	SortOrder string
 }
 
-// SearchResult represents a search result
+// SearchResult represents a single search result
 type SearchResult struct {
-	Hits     []Document
+	Content  map[string]interface{} // Contains URL, Title, Snippet, etc.
+	Score    float64
+	Metadata map[string]interface{}
+}
+
+// SearchResults represents a collection of search results with metadata
+type SearchResults struct {
+	Hits     []SearchResult
 	Facets   map[string][]Facet
 	Metadata map[string]interface{}
 }
@@ -81,7 +88,7 @@ type SearchEngine interface {
 	Delete(id string) error
 
 	// Searching operations
-	Search(query Query) (*SearchResult, error)
+	Search(query Query) (*SearchResults, error)
 	SearchWithOptions(ctx context.Context, opts SearchOptions) ([]SearchResult, error)
 	GetTotalResults(ctx context.Context, query string) (int, error)
 	Suggest(prefix string) []string
@@ -92,4 +99,16 @@ type SearchEngine interface {
 
 	// List operation
 	List() ([]Document, error)
+
+	// Cleanup operation
+	Clear() error
+}
+
+// Searcher defines the interface for search operations
+type Searcher interface {
+	// Search performs a search using the given query
+	Search(ctx context.Context, query string) ([]SearchResult, error)
+
+	// List returns all indexed documents
+	List(ctx context.Context) ([]SearchResult, error)
 }

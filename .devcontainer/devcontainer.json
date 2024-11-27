@@ -10,7 +10,6 @@
 		},
 		"ghcr.io/devcontainers/features/common-utils:2": {
 			"installZsh": true,
-			"configureZshAsDefaultShell": true,
 			"installOhMyZsh": true,
 			"installOhMyZshConfig": true,
 			"upgradePackages": true,
@@ -30,7 +29,14 @@
 			"version": "latest"
 		},
 		"ghcr.io/joshuanianji/devcontainer-features/github-cli-persistence:1": {},
-		"ghcr.io/stuartleeks/dev-container-features/shell-history:0": {}
+		"ghcr.io/stuartleeks/dev-container-features/shell-history:0": {},
+		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+			"moby": true,
+			"installDockerBuildx": true,
+			"installDockerComposeSwitch": true,
+			"version": "latest",
+			"dockerDashComposeVersion": "v2"
+		}
 	},
 	"customizations": {
 		"vscode": {
@@ -47,5 +53,6 @@
 			]
 		}
 	},
-	"forwardPorts": [3000, 3001, 8080, 8025]
+	"forwardPorts": [9090, 2112],
+	"runServices": ["app", "prometheus"]
 }

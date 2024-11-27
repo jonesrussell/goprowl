@@ -112,21 +112,34 @@ func (c *CollyCrawler) Crawl(ctx context.Context, startURL string, depth int) er
 	return c.CrawlWithHandler(ctx, startURL, depth, defaultHandler)
 }
 
+type CrawlStats struct {
+	PagesVisited     int
+	ErrorCount       int
+	CurrentDepth     int
+	StartTime        time.Time
+	LastUpdateTime   time.Time
+	ContentTypeStats map[string]int
+	StatusCodeStats  map[int]int
+}
+
 // CrawlWithHandler implements the Crawler interface
 func (c *CollyCrawler) CrawlWithHandler(ctx context.Context, startURL string, depth int, handler PageHandler) error {
-	c.startTime = time.Now()
+	stats := &CrawlStats{
+		StartTime:        time.Now(),
+		ContentTypeStats: make(map[string]int),
+		StatusCodeStats:  make(map[int]int),
+	}
 
-	// Add structured crawl status logging
+	// Add structured logging
 	statusLogger := c.logger.With(
 		zap.String("crawler_id", c.id),
 		zap.String("url", startURL),
 		zap.Int("depth", depth),
 	)
 
-	// Log initial crawl status
+	// Log initial state
 	statusLogger.Info("crawl started",
-		zap.Time("start_time", c.startTime),
-		zap.Int("target_depth", depth))
+		zap.Time("start_time", stats.StartTime))
 
 	// Add periodic status updates
 	ticker := time.NewTicker(30 * time.Second)
@@ -136,9 +149,15 @@ func (c *CollyCrawler) CrawlWithHandler(ctx context.Context, startURL string, de
 		for {
 			select {
 			case <-ticker.C:
-				statusLogger.Info("crawl status update",
-					zap.Int("pages_visited", c.pagesVisited),
-					zap.Duration("elapsed_time", time.Since(c.startTime)))
+				stats.LastUpdateTime = time.Now()
+				statusLogger.Info("crawl status",
+					zap.Int("pages_visited", stats.PagesVisited),
+					zap.Int("errors", stats.ErrorCount),
+					zap.Int("current_depth", stats.CurrentDepth),
+					zap.Duration("elapsed_time", time.Since(stats.StartTime)),
+					zap.Any("content_types", stats.ContentTypeStats),
+					zap.Any("status_codes", stats.StatusCodeStats),
+				)
 			case <-ctx.Done():
 				return
 			}

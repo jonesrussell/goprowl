@@ -362,11 +362,14 @@ func (e *BasicSearchEngine) GetTotalResults(ctx context.Context, queryString str
 
 func (e *BasicSearchEngine) List() ([]Document, error) {
 	ctx := context.Background()
+
+	// Use the storage's List method
 	docs, err := e.storage.List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list documents: %w", err)
 	}
 
+	// Convert storage documents to engine Documents
 	results := make([]Document, 0, len(docs))
 	for _, doc := range docs {
 		results = append(results, &BasicDocument{

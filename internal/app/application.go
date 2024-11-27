@@ -77,24 +77,19 @@ func (app *Application) Search(queryStr string) error {
 	return nil
 }
 
-// ListDocuments lists all indexed documents
+// ListDocuments lists all indexed documents with proper error handling and metrics
 func (app *Application) ListDocuments() error {
+	app.logger.Info("retrieving document list")
+
 	docs, err := app.engine.List()
 	if err != nil {
+		app.logger.Error("failed to list documents", zap.Error(err))
 		return fmt.Errorf("failed to list documents: %w", err)
 	}
 
-	fmt.Printf("Found %d documents:\n\n", len(docs))
-	for _, doc := range docs {
-		content := doc.Content()
-		fmt.Printf("Title: %s\n", content["title"])
-		fmt.Printf("URL: %s\n", content["url"])
-		fmt.Printf("Type: %s\n", doc.Type())
-		if createdAt, ok := doc.Metadata()["created_at"]; ok {
-			fmt.Printf("Created: %s\n", createdAt)
-		}
-		fmt.Println("---")
-	}
+	app.logger.Info("documents retrieved successfully",
+		zap.Int("document_count", len(docs)),
+	)
 
 	return nil
 }

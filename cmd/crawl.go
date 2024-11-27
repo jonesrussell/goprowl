@@ -13,6 +13,8 @@ import (
 	"github.com/jonesrussell/goprowl/search/crawlers"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
+	"go.uber.org/fx/fxevent"
+	"go.uber.org/zap"
 )
 
 // CrawlOptions holds the command-line options for the crawl command
@@ -65,33 +67,42 @@ func runCrawl(ctx context.Context, opts *CrawlOptions) error {
 // createApp initializes the fx application with the necessary modules and config.
 func createApp(opts *CrawlOptions) *fx.App {
 	return fx.New(
-		app.Module,
-		fx.Supply(&crawlers.ConfigOptions{
-			URL:      opts.url,
-			MaxDepth: opts.depth,
-			Debug:    opts.debug,
+		fx.WithLogger(func(log *zap.Logger) fxevent.Logger {
+			return &fxevent.ZapLogger{Logger: log}
 		}),
-		fx.Supply(metrics.Config{
-			PushgatewayURL: "http://localhost:9091",
-		}),
+		NewLoggerModule(),
+		fx.Provide(
+			func() *crawlers.ConfigOptions {
+				return &crawlers.ConfigOptions{
+					URL:      opts.url,
+					MaxDepth: opts.depth,
+					Debug:    opts.debug,
+				}
+			},
+		),
 		metrics.Module,
+		app.Module,
 		crawlers.Module,
-		fx.Invoke(func(lc fx.Lifecycle, shutdowner fx.Shutdowner, crawler crawlers.Crawler) error {
+		fx.Invoke(func(lc fx.Lifecycle, shutdowner fx.Shutdowner, crawler crawlers.Crawler, logger *zap.Logger) error {
 			ctx, cancel := context.WithCancel(context.Background())
 
 			lc.Append(fx.Hook{
 				OnStart: func(context.Context) error {
+					logger.Info("starting crawler",
+						zap.String("url", opts.url),
+						zap.Int("depth", opts.depth))
+
 					go func() {
-						defer cancel()
 						if err := crawler.Crawl(ctx, opts.url, opts.depth); err != nil {
-							_ = shutdowner.Shutdown()
-							return
+							logger.Error("crawler failed", zap.Error(err))
 						}
-						_ = shutdowner.Shutdown()
+						logger.Info("initiating shutdown")
+						shutdowner.Shutdown()
 					}()
 					return nil
 				},
 				OnStop: func(context.Context) error {
+					logger.Info("stopping crawler")
 					cancel()
 					return nil
 				},

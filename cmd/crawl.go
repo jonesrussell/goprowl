@@ -5,7 +5,7 @@ package cmd
 
 import (
 	"context"
-	"fmt"
+	"os"
 	"time"
 
 	"github.com/jonesrussell/goprowl/internal/app"
@@ -13,6 +13,7 @@ import (
 	"github.com/jonesrussell/goprowl/search/crawlers"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
+	"go.uber.org/fx/fxevent"
 )
 
 func NewCrawlCmd() *cobra.Command {
@@ -24,6 +25,7 @@ func NewCrawlCmd() *cobra.Command {
 		Use:   "crawl",
 		Short: "Crawl a website",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			logger := &fxevent.ConsoleLogger{W: os.Stdout}
 			app := fx.New(
 				fx.Supply(&crawlers.ConfigOptions{
 					URL:      url,
@@ -36,28 +38,112 @@ func NewCrawlCmd() *cobra.Command {
 				metrics.Module,
 				app.Module,
 				crawlers.Module,
-				fx.Invoke(func(crawler crawlers.Crawler) error {
-					fmt.Printf("Starting crawl of %s with depth %d\n", url, depth)
-					return crawler.Crawl(cmd.Context(), url, depth)
+				fx.Invoke(func(lc fx.Lifecycle, shutdowner fx.Shutdowner, crawler crawlers.Crawler) error {
+					// Create a cancellable context for the crawler
+					ctx, cancel := context.WithCancel(context.Background())
+
+					lc.Append(fx.Hook{
+						OnStart: func(context.Context) error {
+							logger.LogEvent(&fxevent.OnStartExecuting{
+								FunctionName: "Crawler.Start",
+								CallerName:   "CrawlCommand",
+							})
+
+							// Create a channel to signal crawl completion
+							done := make(chan struct{})
+
+							// Run crawl in a goroutine so we can handle shutdown properly
+							go func() {
+								defer close(done)
+								if err := crawler.Crawl(ctx, url, depth); err != nil {
+									logger.LogEvent(&fxevent.OnStopExecuted{
+										FunctionName: "Crawler.Crawl",
+										CallerName:   "CrawlCommand",
+										Err:          err,
+									})
+									return
+								}
+								logger.LogEvent(&fxevent.OnStopExecuted{
+									FunctionName: "Crawler.Crawl",
+									CallerName:   "CrawlCommand",
+									Runtime:      time.Duration(0),
+								})
+							}()
+
+							// Start shutdown sequence after crawl completes
+							go func() {
+								<-done
+								logger.LogEvent(&fxevent.OnStopExecuting{
+									FunctionName: "Crawler.Shutdown",
+									CallerName:   "CrawlCommand",
+								})
+
+								// Give a small delay to ensure logs are written
+								time.Sleep(100 * time.Millisecond)
+
+								if err := shutdowner.Shutdown(); err != nil {
+									logger.LogEvent(&fxevent.OnStopExecuted{
+										FunctionName: "Crawler.Shutdown",
+										CallerName:   "CrawlCommand",
+										Err:          err,
+									})
+									cancel() // Cancel the context to ensure complete shutdown
+									return
+								}
+
+								logger.LogEvent(&fxevent.OnStopExecuted{
+									FunctionName: "Crawler.Shutdown",
+									CallerName:   "CrawlCommand",
+									Runtime:      time.Duration(0),
+								})
+								cancel() // Cancel the context to ensure complete shutdown
+							}()
+
+							logger.LogEvent(&fxevent.OnStartExecuted{
+								FunctionName: "Crawler.Start",
+								CallerName:   "CrawlCommand",
+								Runtime:      time.Duration(0),
+							})
+							return nil
+						},
+						OnStop: func(context.Context) error {
+							logger.LogEvent(&fxevent.OnStopExecuting{
+								FunctionName: "Crawler.Stop",
+								CallerName:   "CrawlCommand",
+							})
+							cancel() // Ensure context is cancelled on stop
+							return nil
+						},
+					})
+					return nil
+				}),
+				fx.WithLogger(func() fxevent.Logger {
+					return logger
 				}),
 			)
 
-			startCtx := cmd.Context()
+			startCtx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+
 			if err := app.Start(startCtx); err != nil {
 				return err
 			}
 
-			// Ensure we stop the application when we're done
-			defer func() {
-				stopCtx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-				defer cancel()
-				if err := app.Stop(stopCtx); err != nil {
-					fmt.Printf("Error stopping application: %v\n", err)
-				}
-			}()
-
-			<-app.Done()
-			return nil
+			// Wait for completion or context cancellation
+			select {
+			case <-app.Done():
+				logger.LogEvent(&fxevent.Stopped{
+					Err: app.Err(),
+				})
+				// Add small delay to ensure final logs are written
+				time.Sleep(100 * time.Millisecond)
+				return app.Err()
+			case <-cmd.Context().Done():
+				logger.LogEvent(&fxevent.Stopped{
+					Err: cmd.Context().Err(),
+				})
+				return cmd.Context().Err()
+			}
 		},
 	}
 

@@ -6,12 +6,9 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
-	"github.com/jonesrussell/goprowl/internal/app"
-	"github.com/jonesrussell/goprowl/metrics"
-	"github.com/jonesrussell/goprowl/search/crawlers"
 	"github.com/spf13/cobra"
-	"go.uber.org/fx"
 )
 
 var rootCmd = &cobra.Command{
@@ -26,17 +23,37 @@ configurable storage backends.`,
 }
 
 func Execute() error {
-	// Create a cancellable context
-	ctx, cancel := context.WithCancel(context.Background())
+	// Create a cancellable context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	// Handle interrupt signals
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	// Create buffered channel for signals
+	sigChan := make(chan os.Signal, 2)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+
+	// Handle interrupt signals in a separate context
+	signalCtx, signalCancel := context.WithCancel(context.Background())
+	defer signalCancel()
+
 	go func() {
-		<-sigChan
-		fmt.Println("\nReceived interrupt signal. Shutting down...")
-		cancel()
+		select {
+		case sig := <-sigChan:
+			fmt.Printf("\nReceived signal %v. Initiating graceful shutdown...\n", sig)
+			// Cancel the main context
+			cancel()
+
+			// Wait for second signal for force quit
+			select {
+			case sig := <-sigChan:
+				fmt.Printf("\nReceived second signal %v. Force quitting...\n", sig)
+				os.Exit(1)
+			case <-time.After(10 * time.Second):
+				fmt.Println("\nGraceful shutdown timed out. Force quitting...")
+				os.Exit(1)
+			}
+		case <-signalCtx.Done():
+			return
+		}
 	}()
 
 	// Add commands
@@ -46,34 +63,12 @@ func Execute() error {
 		NewListCmd(),
 	)
 
-	// Execute the root command
+	// Execute with context and handle any errors
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
-		return err
+		signalCancel() // Clean up signal handler
+		return fmt.Errorf("execution error: %w", err)
 	}
 
+	signalCancel() // Clean up signal handler
 	return nil
-}
-
-// Module provides root command dependencies
-var Module = fx.Module("root",
-	app.Module,
-	metrics.Module,
-	fx.Provide(
-		NewRootCommand,
-		crawlers.ProvideDefaultConfigOptions,
-		fx.Annotate(
-			crawlers.NewCrawlerFromConfig,
-			fx.As(new(crawlers.Crawler)),
-		),
-	),
-)
-
-type RootCommand struct {
-	app *app.Application
-}
-
-func NewRootCommand(app *app.Application) *RootCommand {
-	return &RootCommand{
-		app: app,
-	}
 }

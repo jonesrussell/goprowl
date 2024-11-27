@@ -15,9 +15,11 @@ const (
 
 // BasicQuery implements the Query interface
 type BasicQuery struct {
-	queryTerms []*QueryTerm
-	filters    map[string]interface{}
-	pagination *Pagination
+	queryTerms     []*QueryTerm
+	filters        map[string]interface{}
+	pagination     *Pagination
+	SortField      string
+	SortDescending bool
 }
 
 // QueryProcessor handles advanced query parsing
@@ -137,4 +139,9 @@ func (q *BasicQuery) SetPagination(page, pageSize int) {
 		Page: page,
 		Size: pageSize,
 	}
+}
+
+func (q *BasicQuery) SetSorting(field string, descending bool) {
+	q.SortField = field
+	q.SortDescending = descending
 }

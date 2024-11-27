@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/blevesearch/bleve/v2"
@@ -16,6 +17,7 @@ import (
 type BleveStorage struct {
 	index bleve.Index
 	path  string
+	mu    sync.RWMutex
 }
 
 type BleveDocument struct {
@@ -61,16 +63,31 @@ func createMapping() mapping.IndexMapping {
 }
 
 func (s *BleveStorage) Store(ctx context.Context, doc *storage.Document) error {
-	bleveDoc := BleveDocument{
-		URL:       doc.URL,
-		Title:     doc.Title,
-		Content:   doc.Content,
-		Type:      doc.Type,
-		Metadata:  doc.Metadata,
-		CreatedAt: doc.CreatedAt,
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Create a map of all fields to store
+	fields := map[string]interface{}{
+		"url":        doc.URL,
+		"title":      doc.Title,
+		"content":    doc.Content,
+		"type":       doc.Type,
+		"created_at": doc.CreatedAt.Format(time.RFC3339),
 	}
 
-	return s.index.Index(doc.URL, bleveDoc)
+	// Add metadata fields
+	for key, value := range doc.Metadata {
+		if !isReservedField(key) {
+			fields[key] = value
+		}
+	}
+
+	// Store the document
+	if err := s.index.Index(doc.URL, fields); err != nil {
+		return fmt.Errorf("failed to index document: %w", err)
+	}
+
+	return nil
 }
 
 func (s *BleveStorage) Get(ctx context.Context, id string) (*storage.Document, error) {
@@ -125,25 +142,61 @@ func (s *BleveStorage) Get(ctx context.Context, id string) (*storage.Document, e
 }
 
 func (s *BleveStorage) List(ctx context.Context) ([]*storage.Document, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Create a match all query
 	query := bleve.NewMatchAllQuery()
 	searchRequest := bleve.NewSearchRequest(query)
-	searchRequest.Size = 1000 // Adjust as needed
+	searchRequest.Size = 1000            // Adjust based on your needs
+	searchRequest.Fields = []string{"*"} // Request all stored fields
 
 	searchResult, err := s.index.Search(searchRequest)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list documents: %w", err)
+		return nil, fmt.Errorf("failed to search index: %w", err)
 	}
 
 	docs := make([]*storage.Document, 0, len(searchResult.Hits))
 	for _, hit := range searchResult.Hits {
-		doc, err := s.Get(ctx, hit.ID)
-		if err != nil {
-			continue // Skip failed documents
+		// Get the stored fields directly from the hit
+		doc := &storage.Document{
+			URL:     hit.Fields["url"].(string),
+			Title:   hit.Fields["title"].(string),
+			Content: hit.Fields["content"].(string),
+			Type:    hit.Fields["type"].(string),
 		}
+
+		// Handle created_at conversion
+		if createdStr, ok := hit.Fields["created_at"].(string); ok {
+			if created, err := time.Parse(time.RFC3339, createdStr); err == nil {
+				doc.CreatedAt = created
+			}
+		}
+
+		// Handle metadata
+		doc.Metadata = make(map[string]interface{})
+		for key, value := range hit.Fields {
+			if !isReservedField(key) {
+				doc.Metadata[key] = value
+			}
+		}
+
 		docs = append(docs, doc)
 	}
 
 	return docs, nil
+}
+
+// Helper function to check if a field name is reserved
+func isReservedField(field string) bool {
+	reserved := map[string]bool{
+		"url":        true,
+		"title":      true,
+		"content":    true,
+		"type":       true,
+		"created_at": true,
+	}
+	return reserved[field]
 }
 
 func (s *BleveStorage) Search(ctx context.Context, query string) ([]*storage.Document, error) {

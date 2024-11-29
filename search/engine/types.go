@@ -3,59 +3,43 @@ package engine
 import (
 	"context"
 	"time"
+
+	"github.com/jonesrussell/goprowl/search/engine/query"
 )
 
-// Query interface defines the contract for all query types
-type Query interface {
-	Terms() []*QueryTerm
-	Filters() map[string]interface{}
-	Pagination() *Pagination
-}
+// SearchEngine interface defines the contract for search engine implementations
+type SearchEngine interface {
+	// Indexing operations
+	Index(doc Document) error
+	BatchIndex(docs []Document) error
+	Delete(id string) error
 
-// QueryTerm represents a structured query term
-type QueryTerm struct {
-	Text      string
-	Type      QueryType
-	Field     string
-	Fuzziness int
-	Required  bool
-	Excluded  bool
-}
+	// Searching operations
+	Search(q *query.Query) (*SearchResults, error)
+	SearchWithOptions(ctx context.Context, opts SearchOptions) ([]SearchResult, error)
+	GetTotalResults(ctx context.Context, queryStr string) (int, error)
+	Suggest(prefix string) []string
 
-// Pagination holds pagination information
-type Pagination struct {
-	Page int
-	Size int
-}
-
-// SearchOptions represents options for search operations
-type SearchOptions struct {
-	Query     string
-	Filters   map[string]interface{}
-	Page      int
-	PageSize  int
-	SortBy    string
-	SortOrder string
+	// Management operations
+	Reindex() error
+	Stats() *SearchStats
+	List() ([]Document, error)
+	Clear() error
 }
 
 // SearchResult represents a single search result
 type SearchResult struct {
-	Content  map[string]interface{} // Contains URL, Title, Snippet, etc.
-	Score    float64
-	Metadata map[string]interface{}
+	DocID   string
+	Score   float64
+	Content map[string]interface{}
 }
 
-// SearchResults represents a collection of search results with metadata
+// SearchResults represents a collection of search results
 type SearchResults struct {
 	Hits     []SearchResult
-	Facets   map[string][]Facet
+	Total    int64
+	Took     time.Duration
 	Metadata map[string]interface{}
-}
-
-// Facet represents a facet in search results
-type Facet struct {
-	Value string
-	Count int64
 }
 
 // SearchStats holds search engine statistics
@@ -65,10 +49,20 @@ type SearchStats struct {
 	IndexSize     int64
 }
 
-// Permission represents document access permissions
-type Permission struct {
-	Read  []string
-	Write []string
+// SearchOptions represents options for search operations
+type SearchOptions struct {
+	QueryString string
+	Page        int
+	PageSize    int
+	Filters     map[string]interface{}
+	SortField   string
+	SortDesc    bool
+}
+
+// SortField represents a field to sort by
+type SortField struct {
+	Field      string
+	Descending bool
 }
 
 // Document interface defines the contract for searchable documents
@@ -80,35 +74,8 @@ type Document interface {
 	Permission() *Permission
 }
 
-// SearchEngine interface defines the contract for search engine implementations
-type SearchEngine interface {
-	// Indexing operations
-	Index(doc Document) error
-	BatchIndex(docs []Document) error
-	Delete(id string) error
-
-	// Searching operations
-	Search(query Query) (*SearchResults, error)
-	SearchWithOptions(ctx context.Context, opts SearchOptions) ([]SearchResult, error)
-	GetTotalResults(ctx context.Context, query string) (int, error)
-	Suggest(prefix string) []string
-
-	// Management operations
-	Reindex() error
-	Stats() *SearchStats
-
-	// List operation
-	List() ([]Document, error)
-
-	// Cleanup operation
-	Clear() error
-}
-
-// Searcher defines the interface for search operations
-type Searcher interface {
-	// Search performs a search using the given query
-	Search(ctx context.Context, query string) ([]SearchResult, error)
-
-	// List returns all indexed documents
-	List(ctx context.Context) ([]SearchResult, error)
+// Permission represents document access permissions
+type Permission struct {
+	Read  []string
+	Write []string
 }

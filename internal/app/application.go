@@ -7,6 +7,7 @@ import (
 
 	"github.com/jonesrussell/goprowl/search/crawlers"
 	"github.com/jonesrussell/goprowl/search/engine"
+	"github.com/jonesrussell/goprowl/search/engine/query"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 )
@@ -45,8 +46,8 @@ func NewApplication(
 
 // Search performs a search operation
 func (app *Application) Search(queryStr string) error {
-	processor := engine.NewQueryProcessor()
-	query, err := processor.ParseQuery(queryStr)
+	processor := query.NewQueryProcessor()
+	q, err := processor.ParseQuery(queryStr)
 	if err != nil {
 		app.logger.Error("failed to parse query",
 			zap.String("query", queryStr),
@@ -54,7 +55,7 @@ func (app *Application) Search(queryStr string) error {
 		return fmt.Errorf("failed to parse query: %w", err)
 	}
 
-	results, err := app.engine.Search(query)
+	results, err := app.engine.Search(q)
 	if err != nil {
 		app.logger.Error("search failed",
 			zap.String("query", queryStr),

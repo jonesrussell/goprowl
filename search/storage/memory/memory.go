@@ -70,18 +70,25 @@ func (m *MemoryStorage) GetAll(ctx context.Context) ([]*storage.Document, error)
 }
 
 // Get retrieves a document from memory
-func (m *MemoryStorage) Get(id string) (map[string]interface{}, error) {
+func (m *MemoryStorage) Get(ctx context.Context, id string) (*storage.Document, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	if content, exists := m.store[id]; exists {
-		return content, nil
+		return &storage.Document{
+			URL:       content["url"].(string),
+			Title:     content["title"].(string),
+			Content:   content["content"].(string),
+			Type:      content["type"].(string),
+			CreatedAt: content["created_at"].(time.Time),
+			Metadata:  content["metadata"].(map[string]interface{}),
+		}, nil
 	}
-	return nil, nil
+	return nil, storage.ErrDocumentNotFound
 }
 
 // Delete removes a document from memory
-func (m *MemoryStorage) Delete(id string) error {
+func (m *MemoryStorage) Delete(ctx context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -90,37 +97,34 @@ func (m *MemoryStorage) Delete(id string) error {
 }
 
 // List returns all document IDs
-func (m *MemoryStorage) List() ([]string, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	ids := make([]string, 0, len(m.store))
-	for id := range m.store {
-		ids = append(ids, id)
-	}
-	return ids, nil
+func (m *MemoryStorage) List(ctx context.Context) ([]*storage.Document, error) {
+	return m.GetAll(ctx)
 }
 
 // Search performs a basic search operation
-func (m *MemoryStorage) Search(query map[string]interface{}) ([]map[string]interface{}, error) {
+func (m *MemoryStorage) Search(ctx context.Context, query string) ([]*storage.Document, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	results := make([]map[string]interface{}, 0)
-
-	// Basic implementation - matches exact values in fields
-	for _, doc := range m.store {
-		matches := true
-		for field, value := range query {
-			if docValue, exists := doc[field]; !exists || docValue != value {
-				matches = false
-				break
-			}
+	results := make([]*storage.Document, 0)
+	for _, content := range m.store {
+		doc := &storage.Document{
+			URL:       content["url"].(string),
+			Title:     content["title"].(string),
+			Content:   content["content"].(string),
+			Type:      content["type"].(string),
+			CreatedAt: content["created_at"].(time.Time),
+			Metadata:  content["metadata"].(map[string]interface{}),
 		}
-		if matches {
-			results = append(results, doc)
-		}
+		results = append(results, doc)
 	}
-
 	return results, nil
+}
+
+// Add this method to MemoryStorage
+func (m *MemoryStorage) Clear(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.store = make(map[string]map[string]interface{})
+	return nil
 }

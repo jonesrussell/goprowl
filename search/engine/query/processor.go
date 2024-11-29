@@ -1,119 +1,123 @@
 package query
 
 import (
+	"fmt"
 	"strings"
 )
 
-type QueryType int
+// QueryProcessor handles query parsing and processing
+type QueryProcessor struct{}
 
-const (
-	TypeSimple QueryType = iota
-	TypePhrase
-	TypeFuzzy
-	TypeBoolean
-)
-
-type QueryTerm struct {
-	Text      string
-	Field     string
-	Type      QueryType
-	Fuzziness int     // For fuzzy matching
-	Required  bool    // For boolean AND
-	Excluded  bool    // For boolean NOT
-	Boost     float64 // Term importance
-}
-
-type QueryProcessor struct {
-	// Remove unused fields and add any necessary state here
-}
-
+// NewQueryProcessor creates a new QueryProcessor instance
 func NewQueryProcessor() *QueryProcessor {
 	return &QueryProcessor{}
 }
 
-// ParseQuery is a more descriptive name than just Parse
-func (p *QueryProcessor) ParseQuery(queryString string) ([]*QueryTerm, error) {
-	terms := strings.Fields(queryString)
-	var queryTerms []*QueryTerm
+// ParseQuery parses a query string into a structured Query
+func (p *QueryProcessor) ParseQuery(queryStr string) (*Query, error) {
+	q := NewQuery()
+	terms := splitKeepingQuotes(queryStr)
+	hasAnd := containsAndOperator(terms)
 
-	for i := 0; i < len(terms); i++ {
-		term := terms[i]
-
-		// Handle boolean operators
-		switch strings.ToUpper(term) {
-		case "AND":
-			if i+1 < len(terms) {
-				i++
-				queryTerms = append(queryTerms, &QueryTerm{
-					Text:     terms[i],
-					Required: true,
-					Type:     TypeSimple,
-				})
-			}
-			continue
-		case "OR":
-			continue
-		case "NOT":
-			if i+1 < len(terms) {
-				i++
-				queryTerms = append(queryTerms, &QueryTerm{
-					Text:     terms[i],
-					Excluded: true,
-					Type:     TypeSimple,
-				})
-			}
-			continue
+	if len(terms) > 0 {
+		if err := addFirstTerm(q, terms[0]); err != nil {
+			return nil, err
 		}
-
-		// Handle phrase matching
-		if strings.HasPrefix(term, "\"") {
-			phrase := []string{strings.TrimPrefix(term, "\"")}
-			for i++; i < len(terms); i++ {
-				phrase = append(phrase, terms[i])
-				if strings.HasSuffix(terms[i], "\"") {
-					phrase[len(phrase)-1] = strings.TrimSuffix(phrase[len(phrase)-1], "\"")
-					break
-				}
-			}
-			queryTerms = append(queryTerms, &QueryTerm{
-				Text: strings.Join(phrase, " "),
-				Type: TypePhrase,
-			})
-			continue
-		}
-
-		// Handle fuzzy matching
-		if strings.Contains(term, "~") {
-			parts := strings.Split(term, "~")
-			fuzziness := 1 // Default fuzziness
-			if len(parts) > 1 && parts[1] != "" {
-				fuzziness = int(parts[1][0] - '0')
-			}
-			queryTerms = append(queryTerms, &QueryTerm{
-				Text:      parts[0],
-				Type:      TypeFuzzy,
-				Fuzziness: fuzziness,
-			})
-			continue
-		}
-
-		// Handle field-specific search
-		if strings.Contains(term, ":") {
-			parts := strings.Split(term, ":")
-			queryTerms = append(queryTerms, &QueryTerm{
-				Field: parts[0],
-				Text:  parts[1],
-				Type:  TypeSimple,
-			})
-			continue
-		}
-
-		// Simple term
-		queryTerms = append(queryTerms, &QueryTerm{
-			Text: term,
-			Type: TypeSimple,
-		})
 	}
 
-	return queryTerms, nil
+	if err := addRemainingTerms(q, terms[1:], hasAnd); err != nil {
+		return nil, err
+	}
+
+	printDebugOutput(q)
+	return q, nil
+}
+
+func containsAndOperator(terms []string) bool {
+	for _, t := range terms {
+		if strings.EqualFold(strings.TrimSpace(t), "AND") {
+			return true
+		}
+	}
+	return false
+}
+
+func addFirstTerm(q *Query, firstTerm string) error {
+	firstTerm = strings.TrimSpace(firstTerm)
+	if firstTerm != "" && !strings.EqualFold(firstTerm, "AND") {
+		queryTerm := &QueryTerm{
+			Text:     strings.Trim(firstTerm, "\""),
+			Type:     TypeSimple,
+			Required: true,
+		}
+
+		if strings.HasPrefix(firstTerm, "\"") && strings.HasSuffix(firstTerm, "\"") {
+			queryTerm.Type = TypePhrase
+			queryTerm.Text = strings.Trim(queryTerm.Text, "\"")
+		}
+		q.AddTerm(queryTerm)
+	}
+	return nil
+}
+
+func addRemainingTerms(q *Query, terms []string, hasAnd bool) error {
+	for _, term := range terms {
+		term = strings.TrimSpace(term)
+		if term == "" || strings.EqualFold(term, "AND") {
+			continue
+		}
+
+		queryTerm := &QueryTerm{
+			Text:     strings.Trim(term, "\""),
+			Type:     TypeSimple,
+			Required: hasAnd,
+		}
+
+		if strings.HasPrefix(term, "\"") && strings.HasSuffix(term, "\"") {
+			queryTerm.Type = TypePhrase
+			queryTerm.Text = strings.Trim(queryTerm.Text, "\"")
+			queryTerm.Required = true
+		}
+
+		q.AddTerm(queryTerm)
+	}
+	return nil
+}
+
+func splitKeepingQuotes(s string) []string {
+	var result []string
+	var current strings.Builder
+	inQuotes := false
+
+	for _, r := range s {
+		switch r {
+		case '"':
+			inQuotes = !inQuotes
+			current.WriteRune(r)
+		case ' ':
+			if inQuotes {
+				current.WriteRune(r)
+			} else if current.Len() > 0 {
+				result = append(result, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteRune(r)
+		}
+	}
+
+	if current.Len() > 0 {
+		result = append(result, current.String())
+	}
+
+	return result
+}
+
+func printDebugOutput(q *Query) {
+	fmt.Printf("Parsed Query:\n")
+	fmt.Printf("HasAndOperator: %v\n", q.HasAndOperator)
+	for i, term := range q.Terms {
+		fmt.Printf("Term %d: Text='%s', Required=%v, Type=%v\n",
+			i, term.Text, term.Required, term.Type)
+	}
 }

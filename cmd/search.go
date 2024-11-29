@@ -5,13 +5,15 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"strings"
+	"os"
 	"time"
 
 	"github.com/jonesrussell/goprowl/internal/app"
 	"github.com/jonesrussell/goprowl/metrics"
 	"github.com/jonesrussell/goprowl/search/engine"
+	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
@@ -95,7 +97,7 @@ func runSearch(ctx context.Context, opts *SearchOptions) error {
 				zap.String("sort_by", opts.sortBy),
 				zap.String("sort_order", opts.sortOrder))
 
-			results, err := executeSearch(searchEngine, opts)
+			results, err := search(ctx, searchEngine, opts.query, logger)
 			if err != nil {
 				metrics.IncCounter("search_errors_total", 1)
 				logger.Error("search failed", zap.Error(err))
@@ -114,18 +116,39 @@ func runSearch(ctx context.Context, opts *SearchOptions) error {
 	return fx.New(options...).Start(ctx)
 }
 
-func executeSearch(searchEngine engine.SearchEngine, opts *SearchOptions) (*engine.SearchResults, error) {
-	processor := engine.NewQueryProcessor()
-	searchQuery, err := processor.ParseQuery(opts.query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse query: %w", err)
+func search(ctx context.Context, searchEngine engine.SearchEngine, queryStr string, logger *zap.Logger) (*engine.SearchResults, error) {
+	// Create search options with context
+	opts := engine.SearchOptions{
+		QueryString: queryStr,
+		Page:        1,
+		PageSize:    10,
 	}
 
-	searchQuery.SetPagination(opts.page, opts.limit)
-	searchQuery.SortField = opts.sortBy
-	searchQuery.SortDescending = strings.EqualFold(opts.sortOrder, "desc")
+	// Use context in the search operation
+	hits, err := searchEngine.SearchWithOptions(ctx, opts)
+	if err != nil {
+		logger.Error("search failed",
+			zap.String("query", queryStr),
+			zap.Error(err))
+		return nil, fmt.Errorf("search failed: %w", err)
+	}
 
-	return searchEngine.Search(searchQuery)
+	// Get total results count using context
+	total, err := searchEngine.GetTotalResults(ctx, queryStr)
+	if err != nil {
+		logger.Warn("failed to get total results count",
+			zap.String("query", queryStr),
+			zap.Error(err))
+		total = len(hits) // Fallback to hits length
+	}
+
+	return &engine.SearchResults{
+		Hits: hits,
+		Metadata: map[string]interface{}{
+			"total":      int64(total),
+			"query_time": time.Now(),
+		},
+	}, nil
 }
 
 func displayResults(results *engine.SearchResults, format string) error {
@@ -160,11 +183,42 @@ func displayTextResults(results *engine.SearchResults) error {
 }
 
 func displayJSONResults(results *engine.SearchResults) error {
-	// Implementation similar to list command's JSON display
-	return nil // TODO: Implement
+	jsonData := struct {
+		Total    int64                  `json:"total"`
+		Hits     []engine.SearchResult  `json:"hits"`
+		Metadata map[string]interface{} `json:"metadata"`
+	}{
+		Total:    results.Metadata["total"].(int64),
+		Hits:     results.Hits,
+		Metadata: results.Metadata,
+	}
+
+	output, err := json.MarshalIndent(jsonData, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal results to JSON: %w", err)
+	}
+
+	fmt.Println(string(output))
+	return nil
 }
 
 func displayTableResults(results *engine.SearchResults) error {
-	// Implementation similar to list command's table display
-	return nil // TODO: Implement
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Title", "URL", "Score", "Date"})
+
+	for _, hit := range results.Hits {
+		row := []string{
+			fmt.Sprintf("%v", hit.Content["title"]),
+			fmt.Sprintf("%v", hit.Content["url"]),
+			fmt.Sprintf("%.2f", hit.Score),
+			"",
+		}
+		if date, ok := hit.Content["date"].(time.Time); ok {
+			row[3] = date.Format(time.RFC3339)
+		}
+		table.Append(row)
+	}
+
+	table.Render()
+	return nil
 }

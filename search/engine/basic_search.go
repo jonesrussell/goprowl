@@ -10,6 +10,7 @@ import (
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/document"
 	"github.com/blevesearch/bleve/v2/mapping"
+	"github.com/jonesrussell/goprowl/search/engine/query"
 	"github.com/jonesrussell/goprowl/search/storage"
 )
 
@@ -19,7 +20,7 @@ type BasicSearchEngine struct {
 	index   bleve.Index
 }
 
-func (e *BasicSearchEngine) Search(query Query) (*SearchResults, error) {
+func (e *BasicSearchEngine) Search(q *query.Query) (*SearchResults, error) {
 	docs, err := e.storage.GetAll(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get documents: %w", err)
@@ -32,10 +33,10 @@ func (e *BasicSearchEngine) Search(query Query) (*SearchResults, error) {
 	}, 0)
 
 	for _, doc := range docs {
-		score := e.calculateRelevancy(doc, query.Terms())
+		score := e.calculateRelevancy(doc, q.Terms)
 
 		// Apply filters
-		if !e.matchesFilters(doc, query.Filters()) {
+		if !e.matchesFilters(doc, q.Filters) {
 			continue
 		}
 
@@ -56,9 +57,8 @@ func (e *BasicSearchEngine) Search(query Query) (*SearchResults, error) {
 	})
 
 	// Apply pagination
-	page := query.Pagination()
-	start := (page.Page - 1) * page.Size
-	end := start + page.Size
+	start := (q.Page - 1) * q.PageSize
+	end := start + q.PageSize
 	if end > len(scored) {
 		end = len(scored)
 	}
@@ -68,23 +68,22 @@ func (e *BasicSearchEngine) Search(query Query) (*SearchResults, error) {
 	if start < end {
 		for _, s := range scored[start:end] {
 			hits = append(hits, SearchResult{
-				Content:  s.doc.Content(),
-				Score:    s.score,
-				Metadata: s.doc.Metadata(),
+				Content: s.doc.Content(),
+				Score:   s.score,
 			})
 		}
 	}
 
 	// Create facets
-	facets := make(map[string][]Facet)
+	facets := make(map[string][]FacetResult)
 	typeCounts := make(map[string]int64)
 	for _, doc := range docs {
 		typeCounts[doc.Type]++
 	}
 
-	typeFacets := make([]Facet, 0)
+	typeFacets := make([]FacetResult, 0)
 	for typ, count := range typeCounts {
-		typeFacets = append(typeFacets, Facet{
+		typeFacets = append(typeFacets, FacetResult{
 			Value: typ,
 			Count: count,
 		})
@@ -92,13 +91,19 @@ func (e *BasicSearchEngine) Search(query Query) (*SearchResults, error) {
 	facets["type"] = typeFacets
 
 	return &SearchResults{
-		Hits:   hits,
-		Facets: facets,
+		Hits: hits,
 		Metadata: map[string]interface{}{
 			"total":      int64(len(scored)),
 			"query_time": time.Now(),
+			"facets":     facets,
 		},
 	}, nil
+}
+
+// FacetResult represents a single facet value and its count
+type FacetResult struct {
+	Value string
+	Count int64
 }
 
 // Helper to convert storage document to Document interface
@@ -239,12 +244,12 @@ func (e *BasicSearchEngine) Stats() *SearchStats {
 	return e.stats
 }
 
-func (e *BasicSearchEngine) calculateRelevancy(doc *storage.Document, terms []*QueryTerm) float64 {
+func (e *BasicSearchEngine) calculateRelevancy(doc *storage.Document, terms []*query.QueryTerm) float64 {
 	score := 0.0
 
 	for _, term := range terms {
 		switch term.Type {
-		case TypePhrase:
+		case query.TypePhrase:
 			if strings.Contains(doc.Title, term.Text) {
 				score += 3.0
 			}
@@ -252,7 +257,7 @@ func (e *BasicSearchEngine) calculateRelevancy(doc *storage.Document, terms []*Q
 				score += 2.0
 			}
 
-		case TypeFuzzy:
+		case query.TypeFuzzy:
 			// Implement fuzzy matching logic here
 			// For now, simple contains check
 			if strings.Contains(doc.Title, term.Text) {
@@ -320,26 +325,33 @@ func New(storage storage.StorageAdapter) (SearchEngine, error) {
 
 // SearchWithOptions implements the SearchEngine interface
 func (e *BasicSearchEngine) SearchWithOptions(ctx context.Context, opts SearchOptions) ([]SearchResult, error) {
-	processor := NewQueryProcessor()
-	query, err := processor.ParseQuery(opts.Query)
+	q := &query.Query{
+		Terms:    make([]*query.QueryTerm, 0),
+		Filters:  opts.Filters,
+		Page:     opts.Page,
+		PageSize: opts.PageSize,
+	}
+
+	// Parse the query string
+	processor := query.NewQueryProcessor()
+	parsedQuery, err := processor.ParseQuery(opts.QueryString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse query: %w", err)
 	}
-	query.SetPagination(opts.Page, opts.PageSize)
+	q.Terms = parsedQuery.Terms
 
 	// Use existing Search method
-	results, err := e.Search(query)
+	results, err := e.Search(q)
 	if err != nil {
 		return nil, err
 	}
 
-	// Return the hits directly
 	return results.Hits, nil
 }
 
 // GetTotalResults implements the SearchEngine interface
 func (e *BasicSearchEngine) GetTotalResults(ctx context.Context, queryString string) (int, error) {
-	processor := NewQueryProcessor()
+	processor := query.NewQueryProcessor()
 	query, err := processor.ParseQuery(queryString)
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse query: %w", err)

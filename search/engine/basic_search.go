@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/blevesearch/bleve/v2"
-	"github.com/blevesearch/bleve/v2/document"
 	"github.com/blevesearch/bleve/v2/mapping"
 	"github.com/jonesrussell/goprowl/search/engine/query"
 	"github.com/jonesrussell/goprowl/search/storage"
@@ -24,17 +23,22 @@ type BasicSearchEngine struct {
 	metrics *searchMetrics
 }
 
+// FacetResult represents a single facet value and its count
+type FacetResult struct {
+	Value string
+	Count int64
+}
+
 func (e *BasicSearchEngine) Search(ctx context.Context, q *query.Query) (*SearchResults, error) {
 	select {
 	case <-ctx.Done():
 		return nil, &SearchError{Op: "Search", Err: ctx.Err()}
 	default:
-		docs, err := e.storage.GetAll(context.Background())
+		docs, err := e.storage.GetAll(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get documents: %w", err)
 		}
 
-		// Convert storage documents to interface Documents and score them
 		scored := make([]struct {
 			doc   Document
 			score float64
@@ -42,12 +46,9 @@ func (e *BasicSearchEngine) Search(ctx context.Context, q *query.Query) (*Search
 
 		for _, doc := range docs {
 			score := e.calculateRelevancy(doc, q.Terms)
-
-			// Apply filters
 			if !e.matchesFilters(doc, q.Filters) {
 				continue
 			}
-
 			if score > 0 {
 				scored = append(scored, struct {
 					doc   Document
@@ -86,7 +87,9 @@ func (e *BasicSearchEngine) Search(ctx context.Context, q *query.Query) (*Search
 		facets := make(map[string][]FacetResult)
 		typeCounts := make(map[string]int64)
 		for _, doc := range docs {
-			typeCounts[doc.Type]++
+			if basicDoc, ok := doc.(storage.Document); ok {
+				typeCounts[basicDoc.GetType()]++
+			}
 		}
 
 		typeFacets := make([]FacetResult, 0)
@@ -109,112 +112,26 @@ func (e *BasicSearchEngine) Search(ctx context.Context, q *query.Query) (*Search
 	}
 }
 
-// FacetResult represents a single facet value and its count
-type FacetResult struct {
-	Value string
-	Count int64
-}
-
-// Helper to convert storage document to Document interface
-type BasicDocument struct {
-	id         string
-	docType    string
-	content    map[string]interface{}
-	metadata   map[string]interface{}
-	permission *Permission
-}
-
-func NewBasicDocument(doc *storage.Document) *BasicDocument {
-	return &BasicDocument{
-		id:      doc.URL, // Using URL as ID for now
-		docType: "webpage",
-		content: map[string]interface{}{
-			"title":   doc.Title,
-			"content": doc.Content,
-			"url":     doc.URL,
-		},
-		metadata: map[string]interface{}{
-			"created_at": doc.CreatedAt,
-		},
-		permission: &Permission{
-			Read:  []string{"public"},
-			Write: []string{"admin"},
-		},
-	}
-}
-
-// Implement Document interface
-func (d *BasicDocument) ID() string                       { return d.id }
-func (d *BasicDocument) Type() string                     { return d.docType }
-func (d *BasicDocument) Content() map[string]interface{}  { return d.content }
-func (d *BasicDocument) Metadata() map[string]interface{} { return d.metadata }
-func (d *BasicDocument) Permission() *Permission          { return d.permission }
-
-// Also implement other SearchEngine interface methods:
-func (e *BasicSearchEngine) Index(doc Document) error {
-	if doc == nil {
-		return fmt.Errorf("cannot index nil document")
-	}
-
-	content := doc.Content()
-	if content == nil {
-		return fmt.Errorf("document content is nil")
-	}
-
-	// Safely get title with type assertion
-	title, ok := content["title"].(string)
-	if !ok {
-		return fmt.Errorf("invalid or missing title in document content")
-	}
-
-	// Safely get content with type assertion
-	contentStr, ok := content["content"].(string)
-	if !ok {
-		return fmt.Errorf("invalid or missing content in document content")
-	}
-
-	// Convert Document interface to storage.Document
-	storageDoc := &storage.Document{
-		URL:     doc.ID(),
-		Title:   title,
-		Content: contentStr,
-		Type:    doc.Type(),
-	}
-
-	// Create a new document for indexing
-	indexDoc := document.NewDocument(storageDoc.URL)
-
-	// Only add fields that are not empty
-	if storageDoc.Title != "" {
-		indexDoc.AddField(document.NewTextField("title", []uint64{}, []byte(storageDoc.Title)))
-	}
-	if storageDoc.Content != "" {
-		indexDoc.AddField(document.NewTextField("content", []uint64{}, []byte(storageDoc.Content)))
-	}
-	if storageDoc.Type != "" {
-		indexDoc.AddField(document.NewTextField("type", []uint64{}, []byte(storageDoc.Type)))
-	}
-
-	// Store in storage adapter
-	err := e.storage.Store(context.Background(), storageDoc)
+func (e *BasicSearchEngine) List(ctx context.Context) ([]Document, error) {
+	docs, err := e.storage.GetAll(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to store document: %w", err)
+		return nil, fmt.Errorf("failed to list documents: %w", err)
 	}
 
-	// Index the document
-	if err := e.index.Index(storageDoc.URL, indexDoc); err != nil {
-		return fmt.Errorf("failed to index document: %w", err)
+	results := make([]Document, 0, len(docs))
+	for _, doc := range docs {
+		results = append(results, NewBasicDocument(doc))
 	}
 
-	return nil
+	return results, nil
 }
 
 func (e *BasicSearchEngine) BatchIndex(ctx context.Context, docs []Document) error {
 	g, ctx := errgroup.WithContext(ctx)
-	sem := semaphore.NewWeighted(10) // Limit concurrent operations
+	sem := semaphore.NewWeighted(10)
 
 	for _, doc := range docs {
-		doc := doc // Capture loop variable
+		doc := doc
 		g.Go(func() error {
 			if err := sem.Acquire(ctx, 1); err != nil {
 				return err
@@ -246,7 +163,7 @@ func (e *BasicSearchEngine) Stats() *SearchStats {
 	return e.stats
 }
 
-func (e *BasicSearchEngine) calculateRelevancy(doc *storage.Document, terms []*query.QueryTerm) float64 {
+func (e *BasicSearchEngine) calculateRelevancy(doc storage.Document, terms []*query.QueryTerm) float64 {
 	score := 0.0
 
 	if len(terms) == 0 {
@@ -300,14 +217,15 @@ func (e *BasicSearchEngine) calculateRelevancy(doc *storage.Document, terms []*q
 	return score
 }
 
-func (e *BasicSearchEngine) matchesFilters(doc *storage.Document, filters map[string]interface{}) bool {
+func (e *BasicSearchEngine) matchesFilters(doc storage.Document, filters map[string]interface{}) bool {
 	for key, value := range filters {
 		switch key {
 		case "type":
-			if doc.Type != value.(string) {
-				return false
+			if basicDoc, ok := doc.(storage.Document); ok {
+				if basicDoc.GetType() != value.(string) {
+					return false
+				}
 			}
-			// Add more filter cases as needed
 		}
 	}
 	return true
@@ -341,7 +259,7 @@ func (e *BasicSearchEngine) SearchWithOptions(ctx context.Context, opts SearchOp
 
 	// Parse the query string
 	processor := query.NewQueryProcessor()
-	parsedQuery, err := processor.ParseQuery(opts.QueryString)
+	parsedQuery, err := processor.ParseQuery(ctx, opts.QueryString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse query: %w", err)
 	}
@@ -359,7 +277,7 @@ func (e *BasicSearchEngine) SearchWithOptions(ctx context.Context, opts SearchOp
 // GetTotalResults implements the SearchEngine interface
 func (e *BasicSearchEngine) GetTotalResults(ctx context.Context, queryString string) (int, error) {
 	processor := query.NewQueryProcessor()
-	query, err := processor.ParseQuery(queryString)
+	query, err := processor.ParseQuery(ctx, queryString)
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse query: %w", err)
 	}
@@ -377,35 +295,6 @@ func (e *BasicSearchEngine) GetTotalResults(ctx context.Context, queryString str
 	}
 
 	return int(total), nil
-}
-
-func (e *BasicSearchEngine) List() ([]Document, error) {
-	ctx := context.Background()
-
-	// Use the storage's List method
-	docs, err := e.storage.List(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list documents: %w", err)
-	}
-
-	// Convert storage documents to engine Documents
-	results := make([]Document, 0, len(docs))
-	for _, doc := range docs {
-		results = append(results, &BasicDocument{
-			id: doc.URL,
-			content: map[string]interface{}{
-				"url":     doc.URL,
-				"title":   doc.Title,
-				"content": doc.Content,
-			},
-			docType: doc.Type,
-			metadata: map[string]interface{}{
-				"created_at": doc.CreatedAt,
-			},
-		})
-	}
-
-	return results, nil
 }
 
 // Clear implements the SearchEngine interface by removing all documents
@@ -446,8 +335,34 @@ type searchMetrics struct {
 
 func (e *BasicSearchEngine) recordMetrics(start time.Time, q *query.Query, err error) {
 	duration := time.Since(start)
-	e.metrics.searchDuration.WithLabelValues(q.Type).Observe(duration.Seconds())
+	queryType := "default" // or get from query options
+	e.metrics.searchDuration.WithLabelValues(queryType).Observe(duration.Seconds())
 	if err != nil {
 		e.metrics.searchErrors.WithLabelValues(err.Error()).Inc()
 	}
+}
+
+func (e *BasicSearchEngine) Index(ctx context.Context, doc Document) error {
+	if doc == nil {
+		return fmt.Errorf("cannot index nil document")
+	}
+
+	content := doc.Content()
+	if content == nil {
+		return fmt.Errorf("document content is nil")
+	}
+
+	// Add document to storage
+	if err := e.storage.Store(ctx, doc); err != nil {
+		return fmt.Errorf("failed to store document: %w", err)
+	}
+
+	// Update stats
+	e.stats.DocumentCount++
+	e.stats.LastIndexed = time.Now()
+
+	// Record metric
+	e.metrics.documentsIndexed.Inc()
+
+	return nil
 }

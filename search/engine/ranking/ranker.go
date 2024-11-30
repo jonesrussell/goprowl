@@ -1,4 +1,4 @@
-package ranking
+package engine
 
 import (
 	"math"

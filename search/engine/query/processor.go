@@ -6,6 +6,26 @@ import (
 	"strings"
 )
 
+// ErrorKind represents the type of error
+type ErrorKind int
+
+const (
+	ErrorKindInvalidInput ErrorKind = iota
+	ErrorKindParseFailed
+	ErrorKindInternalError
+)
+
+// SearchError represents a query processing error
+type SearchError struct {
+	Op   string
+	Kind ErrorKind
+	Err  error
+}
+
+func (e *SearchError) Error() string {
+	return fmt.Sprintf("%s: %v", e.Op, e.Err)
+}
+
 // QueryProcessor handles query parsing and processing
 type QueryProcessor struct{}
 
@@ -24,7 +44,14 @@ func (p *QueryProcessor) ParseQuery(ctx context.Context, queryStr string) (*Quer
 			Err:  err,
 		}
 	}
-	q := NewQuery()
+
+	q := &Query{
+		Terms:    make([]*QueryTerm, 0),
+		Page:     1,
+		PageSize: 10,
+		Filters:  make(map[string]interface{}),
+	}
+
 	terms := splitKeepingQuotes(sanitized)
 	hasAnd := containsAndOperator(terms)
 
@@ -38,8 +65,66 @@ func (p *QueryProcessor) ParseQuery(ctx context.Context, queryStr string) (*Quer
 		return nil, err
 	}
 
-	printDebugOutput(q)
 	return q, nil
+}
+
+// sanitizeQuery cleans and normalizes the query string
+func (p *QueryProcessor) sanitizeQuery(query string) string {
+	// Trim whitespace
+	query = strings.TrimSpace(query)
+
+	// Replace multiple spaces with single space
+	query = strings.Join(strings.Fields(query), " ")
+
+	// Remove special characters except quotes and basic operators
+	allowed := func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '"',
+			r == ' ',
+			r == '+',
+			r == '-':
+			return r
+		}
+		return ' '
+	}
+
+	return strings.Map(allowed, query)
+}
+
+// validateQuery checks if the query is valid
+func (p *QueryProcessor) validateQuery(query string) error {
+	if len(query) == 0 {
+		return fmt.Errorf("empty query")
+	}
+
+	// Check for unmatched quotes
+	quoteCount := strings.Count(query, "\"")
+	if quoteCount%2 != 0 {
+		return fmt.Errorf("unmatched quotes in query")
+	}
+
+	// Check for invalid operators
+	terms := strings.Fields(query)
+	for i, term := range terms {
+		if isOperator(term) && (i == 0 || i == len(terms)-1) {
+			return fmt.Errorf("operator '%s' at invalid position", term)
+		}
+	}
+
+	return nil
+}
+
+// isOperator checks if a term is an operator
+func isOperator(term string) bool {
+	operators := map[string]bool{
+		"AND": true,
+		"OR":  true,
+		"NOT": true,
+	}
+	return operators[strings.ToUpper(term)]
 }
 
 func containsAndOperator(terms []string) bool {
@@ -120,13 +205,4 @@ func splitKeepingQuotes(s string) []string {
 	}
 
 	return result
-}
-
-func printDebugOutput(q *Query) {
-	fmt.Printf("Parsed Query:\n")
-	fmt.Printf("HasAndOperator: %v\n", q.HasAndOperator)
-	for i, term := range q.Terms {
-		fmt.Printf("Term %d: Text='%s', Required=%v, Type=%v\n",
-			i, term.Text, term.Required, term.Type)
-	}
 }

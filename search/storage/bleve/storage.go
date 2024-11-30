@@ -2,31 +2,32 @@ package bleve
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"sync"
 	"time"
 
 	"github.com/blevesearch/bleve/v2"
-	"github.com/blevesearch/bleve/v2/document"
+	blevedoc "github.com/blevesearch/bleve/v2/document"
 	"github.com/blevesearch/bleve/v2/mapping"
-	"github.com/jonesrussell/goprowl/search/storage"
+	"github.com/jonesrussell/goprowl/search/core/types"
+	"github.com/jonesrussell/goprowl/search/storage/document"
 )
+
+// BleveDocument represents the document structure for Bleve indexing
+type BleveDocument struct {
+	URL       string
+	Title     string
+	Content   string
+	Type      string
+	CreatedAt time.Time
+	Metadata  map[string]interface{}
+}
 
 type BleveStorage struct {
 	index bleve.Index
 	path  string
 	mu    sync.RWMutex
-}
-
-type BleveDocument struct {
-	URL       string                 `json:"url"`
-	Title     string                 `json:"title"`
-	Content   string                 `json:"content"`
-	Type      string                 `json:"type"`
-	Metadata  map[string]interface{} `json:"metadata"`
-	CreatedAt time.Time              `json:"created_at"`
 }
 
 func New(path string) (*BleveStorage, error) {
@@ -62,56 +63,54 @@ func createMapping() mapping.IndexMapping {
 	return indexMapping
 }
 
-func (s *BleveStorage) Store(ctx context.Context, doc *storage.Document) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// Store implements the StorageAdapter interface
+func (s *BleveStorage) Store(ctx context.Context, doc types.Document) error {
+	done := make(chan error, 1)
 
-	// Create a map of all fields to store
-	fields := map[string]interface{}{
-		"url":        doc.URL,
-		"title":      doc.Title,
-		"content":    doc.Content,
-		"type":       doc.Type,
-		"created_at": doc.CreatedAt.Format(time.RFC3339),
-	}
+	go func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
 
-	// Add metadata fields
-	for key, value := range doc.Metadata {
-		if !isReservedField(key) {
-			fields[key] = value
+		fields := map[string]interface{}{
+			"url":        doc.GetURL(),
+			"title":      doc.GetTitle(),
+			"content":    doc.GetContent(),
+			"type":       doc.GetType(),
+			"created_at": doc.GetCreatedAt().Format(time.RFC3339),
 		}
-	}
 
-	// Store the document
-	if err := s.index.Index(doc.URL, fields); err != nil {
-		return fmt.Errorf("failed to index document: %w", err)
-	}
+		done <- s.index.Index(doc.GetURL(), fields)
+	}()
 
-	return nil
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("storage operation cancelled: %w", ctx.Err())
+	case err := <-done:
+		return err
+	}
 }
 
-func (s *BleveStorage) Get(ctx context.Context, id string) (*storage.Document, error) {
+// Get retrieves a document by ID
+func (s *BleveStorage) Get(ctx context.Context, id string) (types.Document, error) {
 	doc, err := s.index.Document(id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get document: %w", err)
 	}
 
 	if doc == nil {
-		return nil, storage.ErrDocumentNotFound
+		return nil, types.ErrDocumentNotFound
 	}
 
-	bleveDoc := &BleveDocument{}
-	docData := make(map[string]interface{})
-
 	// Convert document fields to map
-	if doc, ok := doc.(*document.Document); ok {
+	docData := make(map[string]interface{})
+	if doc, ok := doc.(*blevedoc.Document); ok {
 		for _, field := range doc.Fields {
 			switch field := field.(type) {
-			case *document.TextField:
+			case *blevedoc.TextField:
 				docData[field.Name()] = field.Value()
-			case *document.DateTimeField:
+			case *blevedoc.DateTimeField:
 				docData[field.Name()] = field.Value()
-			case *document.NumericField:
+			case *blevedoc.NumericField:
 				num, err := field.Number()
 				if err != nil {
 					return nil, fmt.Errorf("failed to get numeric field value: %w", err)
@@ -121,70 +120,117 @@ func (s *BleveStorage) Get(ctx context.Context, id string) (*storage.Document, e
 		}
 	}
 
-	// Marshal and unmarshal to convert the map to struct
-	jsonData, err := json.Marshal(docData)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal document data: %w", err)
-	}
-
-	if err := json.Unmarshal(jsonData, bleveDoc); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal document: %w", err)
-	}
-
-	return &storage.Document{
-		URL:       bleveDoc.URL,
-		Title:     bleveDoc.Title,
-		Content:   bleveDoc.Content,
-		Type:      bleveDoc.Type,
-		Metadata:  bleveDoc.Metadata,
-		CreatedAt: bleveDoc.CreatedAt,
-	}, nil
+	// Create a new document
+	createdAt, _ := time.Parse(time.RFC3339, docData["created_at"].(string))
+	return document.NewDocument(
+		docData["url"].(string),
+		docData["title"].(string),
+		docData["content"].(string),
+		docData["type"].(string),
+		createdAt,
+		docData,
+	), nil
 }
 
-func (s *BleveStorage) List(ctx context.Context) ([]*storage.Document, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Create a match all query
+// GetAll retrieves all documents
+func (s *BleveStorage) GetAll(ctx context.Context) ([]types.Document, error) {
 	query := bleve.NewMatchAllQuery()
 	searchRequest := bleve.NewSearchRequest(query)
-	searchRequest.Size = 1000            // Adjust based on your needs
-	searchRequest.Fields = []string{"*"} // Request all stored fields
+	searchRequest.Size = 10000 // Consider implementing pagination
 
 	searchResult, err := s.index.Search(searchRequest)
 	if err != nil {
-		return nil, fmt.Errorf("failed to search index: %w", err)
+		return nil, fmt.Errorf("failed to get all documents: %w", err)
 	}
 
-	docs := make([]*storage.Document, 0, len(searchResult.Hits))
+	docs := make([]types.Document, 0, len(searchResult.Hits))
 	for _, hit := range searchResult.Hits {
-		// Get the stored fields directly from the hit
-		doc := &storage.Document{
-			URL:     hit.Fields["url"].(string),
-			Title:   hit.Fields["title"].(string),
-			Content: hit.Fields["content"].(string),
-			Type:    hit.Fields["type"].(string),
+		doc, err := s.Get(ctx, hit.ID)
+		if err != nil {
+			continue
 		}
-
-		// Handle created_at conversion
-		if createdStr, ok := hit.Fields["created_at"].(string); ok {
-			if created, err := time.Parse(time.RFC3339, createdStr); err == nil {
-				doc.CreatedAt = created
-			}
-		}
-
-		// Handle metadata
-		doc.Metadata = make(map[string]interface{})
-		for key, value := range hit.Fields {
-			if !isReservedField(key) {
-				doc.Metadata[key] = value
-			}
-		}
-
 		docs = append(docs, doc)
 	}
 
 	return docs, nil
+}
+
+const maxBatchSize = 1000
+
+func (s *BleveStorage) BatchStore(ctx context.Context, docs []types.Document) error {
+	for i := 0; i < len(docs); i += maxBatchSize {
+		end := i + maxBatchSize
+		if end > len(docs) {
+			end = len(docs)
+		}
+
+		batch := s.index.NewBatch()
+		for _, doc := range docs[i:end] {
+			fields := map[string]interface{}{
+				"url":        doc.GetURL(),
+				"title":      doc.GetTitle(),
+				"content":    doc.GetContent(),
+				"type":       doc.GetType(),
+				"created_at": doc.GetCreatedAt().Format(time.RFC3339),
+			}
+
+			// Add metadata
+			for key, value := range doc.GetMetadata() {
+				if !isReservedField(key) {
+					fields[key] = value
+				}
+			}
+
+			if err := batch.Index(doc.GetURL(), fields); err != nil {
+				return fmt.Errorf("failed to add document to batch: %w", err)
+			}
+		}
+
+		if err := s.index.Batch(batch); err != nil {
+			return fmt.Errorf("batch store failed at index %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
+// Delete removes a document by ID
+func (s *BleveStorage) Delete(ctx context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	err := s.index.Delete(id)
+	if err != nil {
+		return fmt.Errorf("failed to delete document: %w", err)
+	}
+	return nil
+}
+
+// Clear removes all documents
+func (s *BleveStorage) Clear(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.index.Close(); err != nil {
+		return fmt.Errorf("failed to close index: %w", err)
+	}
+
+	if err := os.RemoveAll(s.path); err != nil {
+		return fmt.Errorf("failed to remove index directory: %w", err)
+	}
+
+	mapping := createMapping()
+	index, err := bleve.New(s.path, mapping)
+	if err != nil {
+		return fmt.Errorf("failed to create new index: %w", err)
+	}
+	s.index = index
+
+	return nil
+}
+
+// Close implements the StorageAdapter interface
+func (s *BleveStorage) Close() error {
+	return s.index.Close()
 }
 
 // Helper function to check if a field name is reserved
@@ -197,103 +243,4 @@ func isReservedField(field string) bool {
 		"created_at": true,
 	}
 	return reserved[field]
-}
-
-func (s *BleveStorage) Search(ctx context.Context, query string) ([]*storage.Document, error) {
-	q := bleve.NewQueryStringQuery(query)
-	searchRequest := bleve.NewSearchRequest(q)
-
-	searchResult, err := s.index.Search(searchRequest)
-	if err != nil {
-		return nil, fmt.Errorf("failed to search documents: %w", err)
-	}
-
-	docs := make([]*storage.Document, 0, len(searchResult.Hits))
-	for _, hit := range searchResult.Hits {
-		doc, err := s.Get(ctx, hit.ID)
-		if err != nil {
-			continue
-		}
-		docs = append(docs, doc)
-	}
-
-	return docs, nil
-}
-
-func (s *BleveStorage) Close() error {
-	return s.index.Close()
-}
-
-func (s *BleveStorage) BatchStore(ctx context.Context, docs []*storage.Document) error {
-	batch := s.index.NewBatch()
-	for _, doc := range docs {
-		bleveDoc := BleveDocument{
-			URL:       doc.URL,
-			Title:     doc.Title,
-			Content:   doc.Content,
-			Type:      doc.Type,
-			Metadata:  doc.Metadata,
-			CreatedAt: doc.CreatedAt,
-		}
-		if err := batch.Index(doc.URL, bleveDoc); err != nil {
-			return fmt.Errorf("failed to add document to batch: %w", err)
-		}
-	}
-	return s.index.Batch(batch)
-}
-
-func (s *BleveStorage) Delete(ctx context.Context, id string) error {
-	err := s.index.Delete(id)
-	if err != nil {
-		return fmt.Errorf("failed to delete document: %w", err)
-	}
-	return nil
-}
-
-func (s *BleveStorage) GetAll(ctx context.Context) ([]*storage.Document, error) {
-	// Create a match all query
-	query := bleve.NewMatchAllQuery()
-	searchRequest := bleve.NewSearchRequest(query)
-	// Set a high size to get all documents
-	searchRequest.Size = 10000 // Consider implementing pagination for large datasets
-
-	searchResult, err := s.index.Search(searchRequest)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get all documents: %w", err)
-	}
-
-	docs := make([]*storage.Document, 0, len(searchResult.Hits))
-	for _, hit := range searchResult.Hits {
-		doc, err := s.Get(ctx, hit.ID)
-		if err != nil {
-			// Log error but continue with other documents
-			continue
-		}
-		docs = append(docs, doc)
-	}
-
-	return docs, nil
-}
-
-// Clear implements the StorageAdapter interface
-func (s *BleveStorage) Clear(ctx context.Context) error {
-	// Close the current index
-	if err := s.index.Close(); err != nil {
-		return fmt.Errorf("failed to close index: %w", err)
-	}
-
-	// Delete the index directory
-	if err := os.RemoveAll(s.path); err != nil {
-		return fmt.Errorf("failed to remove index directory: %w", err)
-	}
-
-	// Create a new empty index
-	mapping := createMapping()
-	index, err := bleve.New(s.path, mapping)
-	if err != nil {
-		return fmt.Errorf("failed to create new index: %w", err)
-	}
-	s.index = index
-
-	return nil
 }

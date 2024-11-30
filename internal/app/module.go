@@ -1,10 +1,11 @@
 package app
 
 import (
+	"github.com/jonesrussell/goprowl/search/core/types"
 	"github.com/jonesrussell/goprowl/search/engine"
 	"github.com/jonesrussell/goprowl/search/storage"
-	"github.com/jonesrussell/goprowl/search/storage/bleve"
 	"go.uber.org/fx"
+	"go.uber.org/zap"
 )
 
 // DefaultConfig provides default application configuration
@@ -29,10 +30,10 @@ var Module = fx.Options(
 var StorageModule = fx.Options(
 	fx.Provide(
 		fx.Annotate(
-			func() (storage.StorageAdapter, error) {
-				return bleve.New("data/search.bleve")
+			func(logger *zap.Logger) (types.StorageAdapter, error) {
+				return storage.NewStorageAdapter(logger)
 			},
-			fx.As(new(storage.StorageAdapter)),
+			fx.As(new(types.StorageAdapter)),
 		),
 	),
 )

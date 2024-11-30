@@ -10,8 +10,8 @@ import (
 
 	"github.com/jonesrussell/goprowl/internal/app"
 	"github.com/jonesrussell/goprowl/metrics"
-	"github.com/jonesrussell/goprowl/search/adapters/storage"
 	"github.com/jonesrussell/goprowl/search/crawlers"
+	"github.com/jonesrussell/goprowl/search/storage"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"

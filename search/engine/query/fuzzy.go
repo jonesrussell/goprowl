@@ -3,6 +3,8 @@ package query
 import (
 	"strconv"
 	"strings"
+
+	"github.com/jonesrussell/goprowl/search/core/types"
 )
 
 type FuzzyMatcher struct {
@@ -15,7 +17,7 @@ func NewFuzzyMatcher(maxDistance int) *FuzzyMatcher {
 	}
 }
 
-func (f *FuzzyMatcher) AddFuzzySupport(term *QueryTerm) {
+func (f *FuzzyMatcher) AddFuzzySupport(term *types.QueryTerm) {
 	// Check for fuzzy syntax (e.g., "term~2")
 	if strings.Contains(term.Text, "~") {
 		parts := strings.Split(term.Text, "~")

@@ -1,6 +1,7 @@
 package query
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
@@ -14,9 +15,17 @@ func NewQueryProcessor() *QueryProcessor {
 }
 
 // ParseQuery parses a query string into a structured Query
-func (p *QueryProcessor) ParseQuery(queryStr string) (*Query, error) {
+func (p *QueryProcessor) ParseQuery(ctx context.Context, queryStr string) (*Query, error) {
+	sanitized := p.sanitizeQuery(queryStr)
+	if err := p.validateQuery(sanitized); err != nil {
+		return nil, &SearchError{
+			Op:   "ParseQuery",
+			Kind: ErrorKindInvalidInput,
+			Err:  err,
+		}
+	}
 	q := NewQuery()
-	terms := splitKeepingQuotes(queryStr)
+	terms := splitKeepingQuotes(sanitized)
 	hasAnd := containsAndOperator(terms)
 
 	if len(terms) > 0 {

@@ -20,11 +20,11 @@ type Document struct {
 type StorageAdapter interface {
 	// Store saves a document to storage
 	// Returns an error if the operation fails
-	Store(ctx context.Context, doc *Document) error
+	Store(ctx context.Context, doc *Document, opts ...StoreOption) error
 
 	// Get retrieves a document by ID
 	// Returns ErrDocumentNotFound if the document doesn't exist
-	Get(ctx context.Context, id string) (*Document, error)
+	Get(ctx context.Context, id string, opts ...GetOption) (*Document, error)
 
 	// Delete removes a document from storage
 	// Returns an error if the document doesn't exist or operation fails
@@ -53,3 +53,10 @@ type StorageAdapter interface {
 
 // ErrDocumentNotFound is returned when a document cannot be found in storage
 var ErrDocumentNotFound = fmt.Errorf("document not found")
+
+// Add functional options
+type StoreOption func(*storeOptions)
+type storeOptions struct {
+	expiry time.Duration
+	async  bool
+}

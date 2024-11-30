@@ -12,92 +12,101 @@ import (
 	"github.com/blevesearch/bleve/v2/mapping"
 	"github.com/jonesrussell/goprowl/search/engine/query"
 	"github.com/jonesrussell/goprowl/search/storage"
+	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
 )
 
 type BasicSearchEngine struct {
 	storage storage.StorageAdapter
 	stats   *SearchStats
 	index   bleve.Index
+	metrics *searchMetrics
 }
 
-func (e *BasicSearchEngine) Search(q *query.Query) (*SearchResults, error) {
-	docs, err := e.storage.GetAll(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("failed to get documents: %w", err)
-	}
-
-	// Convert storage documents to interface Documents and score them
-	scored := make([]struct {
-		doc   Document
-		score float64
-	}, 0)
-
-	for _, doc := range docs {
-		score := e.calculateRelevancy(doc, q.Terms)
-
-		// Apply filters
-		if !e.matchesFilters(doc, q.Filters) {
-			continue
+func (e *BasicSearchEngine) Search(ctx context.Context, q *query.Query) (*SearchResults, error) {
+	select {
+	case <-ctx.Done():
+		return nil, &SearchError{Op: "Search", Err: ctx.Err()}
+	default:
+		docs, err := e.storage.GetAll(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("failed to get documents: %w", err)
 		}
 
-		if score > 0 {
-			scored = append(scored, struct {
-				doc   Document
-				score float64
-			}{
-				doc:   NewBasicDocument(doc),
-				score: score,
-			})
+		// Convert storage documents to interface Documents and score them
+		scored := make([]struct {
+			doc   Document
+			score float64
+		}, 0)
+
+		for _, doc := range docs {
+			score := e.calculateRelevancy(doc, q.Terms)
+
+			// Apply filters
+			if !e.matchesFilters(doc, q.Filters) {
+				continue
+			}
+
+			if score > 0 {
+				scored = append(scored, struct {
+					doc   Document
+					score float64
+				}{
+					doc:   NewBasicDocument(doc),
+					score: score,
+				})
+			}
 		}
-	}
 
-	// Sort by score
-	sort.Slice(scored, func(i, j int) bool {
-		return scored[i].score > scored[j].score
-	})
-
-	// Apply pagination
-	start := (q.Page - 1) * q.PageSize
-	end := start + q.PageSize
-	if end > len(scored) {
-		end = len(scored)
-	}
-
-	// Convert scored documents to SearchResults
-	hits := make([]SearchResult, 0)
-	if start < end {
-		for _, s := range scored[start:end] {
-			hits = append(hits, SearchResult{
-				Content: s.doc.Content(),
-				Score:   s.score,
-			})
-		}
-	}
-
-	// Create facets
-	facets := make(map[string][]FacetResult)
-	typeCounts := make(map[string]int64)
-	for _, doc := range docs {
-		typeCounts[doc.Type]++
-	}
-
-	typeFacets := make([]FacetResult, 0)
-	for typ, count := range typeCounts {
-		typeFacets = append(typeFacets, FacetResult{
-			Value: typ,
-			Count: count,
+		// Sort by score
+		sort.Slice(scored, func(i, j int) bool {
+			return scored[i].score > scored[j].score
 		})
-	}
-	facets["type"] = typeFacets
 
-	return &SearchResults{
-		Hits: hits,
-		Metadata: map[string]interface{}{
-			"total":      int64(len(scored)),
-			"query_time": time.Now(),
-			"facets":     facets,
-		},
-	}, nil
+		// Apply pagination
+		start := (q.Page - 1) * q.PageSize
+		end := start + q.PageSize
+		if end > len(scored) {
+			end = len(scored)
+		}
+
+		// Convert scored documents to SearchResults
+		hits := make([]SearchResult, 0)
+		if start < end {
+			for _, s := range scored[start:end] {
+				hits = append(hits, SearchResult{
+					Content: s.doc.Content(),
+					Score:   s.score,
+				})
+			}
+		}
+
+		// Create facets
+		facets := make(map[string][]FacetResult)
+		typeCounts := make(map[string]int64)
+		for _, doc := range docs {
+			typeCounts[doc.Type]++
+		}
+
+		typeFacets := make([]FacetResult, 0)
+		for typ, count := range typeCounts {
+			typeFacets = append(typeFacets, FacetResult{
+				Value: typ,
+				Count: count,
+			})
+		}
+		facets["type"] = typeFacets
+
+		return &SearchResults{
+			Hits: hits,
+			Metadata: map[string]interface{}{
+				"total":      int64(len(scored)),
+				"query_time": time.Now(),
+				"facets":     facets,
+			},
+		}, nil
+	}
 }
 
 // FacetResult represents a single facet value and its count
@@ -200,29 +209,22 @@ func (e *BasicSearchEngine) Index(doc Document) error {
 	return nil
 }
 
-func (e *BasicSearchEngine) BatchIndex(docs []Document) error {
-	storageDocs := make([]*storage.Document, len(docs))
-	for i, doc := range docs {
-		storageDocs[i] = &storage.Document{
-			URL:       doc.ID(),
-			Title:     doc.Content()["title"].(string),
-			Content:   doc.Content()["content"].(string),
-			Type:      doc.Type(),
-			CreatedAt: time.Now(),
-		}
+func (e *BasicSearchEngine) BatchIndex(ctx context.Context, docs []Document) error {
+	g, ctx := errgroup.WithContext(ctx)
+	sem := semaphore.NewWeighted(10) // Limit concurrent operations
+
+	for _, doc := range docs {
+		doc := doc // Capture loop variable
+		g.Go(func() error {
+			if err := sem.Acquire(ctx, 1); err != nil {
+				return err
+			}
+			defer sem.Release(1)
+			return e.Index(ctx, doc)
+		})
 	}
 
-	// Store all documents
-	err := e.storage.BatchStore(context.Background(), storageDocs)
-	if err != nil {
-		return fmt.Errorf("failed to batch store documents: %w", err)
-	}
-
-	// Update stats
-	e.stats.DocumentCount += int64(len(docs))
-	e.stats.LastIndexed = time.Now()
-
-	return nil
+	return g.Wait()
 }
 
 func (e *BasicSearchEngine) Delete(id string) error {
@@ -346,7 +348,7 @@ func (e *BasicSearchEngine) SearchWithOptions(ctx context.Context, opts SearchOp
 	q.Terms = parsedQuery.Terms
 
 	// Use existing Search method
-	results, err := e.Search(q)
+	results, err := e.Search(ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -363,7 +365,7 @@ func (e *BasicSearchEngine) GetTotalResults(ctx context.Context, queryString str
 	}
 
 	// Use existing Search method
-	result, err := e.Search(query)
+	result, err := e.Search(ctx, query)
 	if err != nil {
 		return 0, err
 	}
@@ -433,4 +435,19 @@ func (e *BasicSearchEngine) Clear() error {
 	}
 
 	return nil
+}
+
+// Add structured metrics
+type searchMetrics struct {
+	searchDuration   *prometheus.HistogramVec
+	searchErrors     *prometheus.CounterVec
+	documentsIndexed *prometheus.Counter
+}
+
+func (e *BasicSearchEngine) recordMetrics(start time.Time, q *query.Query, err error) {
+	duration := time.Since(start)
+	e.metrics.searchDuration.WithLabelValues(q.Type).Observe(duration.Seconds())
+	if err != nil {
+		e.metrics.searchErrors.WithLabelValues(err.Error()).Inc()
+	}
 }

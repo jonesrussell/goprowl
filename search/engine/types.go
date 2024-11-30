@@ -2,20 +2,21 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jonesrussell/goprowl/search/engine/query"
 )
 
 // SearchEngine interface defines the contract for search engine implementations
-type SearchEngine interface {
+type SearchEngine[T Document] interface {
 	// Indexing operations
 	Index(doc Document) error
 	BatchIndex(docs []Document) error
 	Delete(id string) error
 
 	// Searching operations
-	Search(q *query.Query) (*SearchResults, error)
+	Search(ctx context.Context, q *query.Query) (*SearchResults[T], error)
 	SearchWithOptions(ctx context.Context, opts SearchOptions) ([]SearchResult, error)
 	GetTotalResults(ctx context.Context, queryStr string) (int, error)
 	Suggest(prefix string) []string
@@ -35,8 +36,8 @@ type SearchResult struct {
 }
 
 // SearchResults represents a collection of search results
-type SearchResults struct {
-	Hits     []SearchResult
+type SearchResults[T Document] struct {
+	Hits     []T
 	Total    int64
 	Took     time.Duration
 	Metadata map[string]interface{}
@@ -79,3 +80,37 @@ type Permission struct {
 	Read  []string
 	Write []string
 }
+
+// Add error types using the new errors.Join pattern
+type SearchError struct {
+	Op   string
+	Kind ErrorKind
+	Err  error
+}
+
+type ErrorKind int
+
+const (
+	ErrorKindNotFound ErrorKind = iota
+	ErrorKindInvalidInput
+	ErrorKindInternal
+)
+
+func (e *SearchError) Error() string {
+	return fmt.Sprintf("%s: %v", e.Op, e.Err)
+}
+
+func (e *SearchError) Unwrap() error {
+	return e.Err
+}
+
+// Add comprehensive documentation with examples
+// Document represents a searchable item in the search engine.
+//
+// Example:
+//
+//	doc := &Document{
+//	    ID:      "123",
+//	    Content: "Sample content",
+//	    Type:    "article",
+//	}

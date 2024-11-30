@@ -247,45 +247,50 @@ func (e *BasicSearchEngine) Stats() *SearchStats {
 func (e *BasicSearchEngine) calculateRelevancy(doc *storage.Document, terms []*query.QueryTerm) float64 {
 	score := 0.0
 
+	if len(terms) == 0 {
+		return score
+	}
+
+	// For AND queries, check if all terms match
+	isAndQuery := false
+	for _, term := range terms {
+		if term.Required {
+			isAndQuery = true
+			break
+		}
+	}
+
+	if isAndQuery {
+		for _, term := range terms {
+			if !strings.Contains(strings.ToLower(doc.Title), strings.ToLower(term.Text)) &&
+				!strings.Contains(strings.ToLower(doc.Content), strings.ToLower(term.Text)) {
+				return 0.0 // If any required term doesn't match, return 0
+			}
+		}
+		// If we get here, all required terms matched
+		score = 1.0
+		return score
+	}
+
+	// Handle different term types
 	for _, term := range terms {
 		switch term.Type {
 		case query.TypePhrase:
-			if strings.Contains(doc.Title, term.Text) {
+			// For phrases, check exact matches
+			if strings.Contains(strings.ToLower(doc.Title), strings.ToLower(term.Text)) {
 				score += 3.0
 			}
-			if strings.Contains(doc.Content, term.Text) {
+			if strings.Contains(strings.ToLower(doc.Content), strings.ToLower(term.Text)) {
 				score += 2.0
-			}
-
-		case query.TypeFuzzy:
-			// Implement fuzzy matching logic here
-			// For now, simple contains check
-			if strings.Contains(doc.Title, term.Text) {
-				score += 2.0
-			}
-			if strings.Contains(doc.Content, term.Text) {
-				score += 1.0
 			}
 
 		default:
-			if term.Field != "" {
-				switch term.Field {
-				case "title":
-					if strings.Contains(strings.ToLower(doc.Title), strings.ToLower(term.Text)) {
-						score += 2.0
-					}
-				case "content":
-					if strings.Contains(strings.ToLower(doc.Content), strings.ToLower(term.Text)) {
-						score += 1.0
-					}
-				}
-			} else {
-				if strings.Contains(strings.ToLower(doc.Title), strings.ToLower(term.Text)) {
-					score += 2.0
-				}
-				if strings.Contains(strings.ToLower(doc.Content), strings.ToLower(term.Text)) {
-					score += 1.0
-				}
+			// For regular terms
+			if strings.Contains(strings.ToLower(doc.Title), strings.ToLower(term.Text)) {
+				score += 2.0
+			}
+			if strings.Contains(strings.ToLower(doc.Content), strings.ToLower(term.Text)) {
+				score += 1.0
 			}
 		}
 	}

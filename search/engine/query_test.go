@@ -34,7 +34,11 @@ func TestSearchEngineIntegration(t *testing.T) {
 
 	// Create a test engine with memory storage
 	memStore := memorystorage.New()
+
+	// Debug: Print initial documents
+	t.Log("Initial documents:")
 	for _, doc := range docs {
+		t.Logf("URL: %s, Title: %s, Content: %s", doc.URL, doc.Title, doc.Content)
 		err := memStore.Store(context.Background(), doc)
 		assert.NoError(t, err)
 	}
@@ -73,17 +77,39 @@ func TestSearchEngineIntegration(t *testing.T) {
 				PageSize:    10,
 			}
 
+			// Debug: Print search parameters
+			t.Logf("Searching with query: %s", tc.queryStr)
+			t.Logf("Expected URLs: %v", tc.expectedURLs)
+
 			results, err := engine.SearchWithOptions(ctx, opts)
 			assert.NoError(t, err)
 			assert.NotNil(t, results)
 
+			// Debug: Print raw results
+			t.Log("Search results:")
+			for _, result := range results {
+				t.Logf("URL: %s", result.Content["url"])
+				t.Logf("Title: %s", result.Content["title"])
+				t.Logf("Content: %s", result.Content["content"])
+				t.Logf("Score: %f", result.Score)
+				t.Log("---")
+			}
+
 			// Verify results
-			assert.Equal(t, len(tc.expectedURLs), len(results))
+			assert.Equal(t, len(tc.expectedURLs), len(results),
+				"Expected %d results, got %d", len(tc.expectedURLs), len(results))
+
 			foundURLs := make([]string, len(results))
 			for i, result := range results {
 				foundURLs[i] = result.Content["url"].(string)
 			}
-			assert.ElementsMatch(t, tc.expectedURLs, foundURLs)
+
+			// Debug: Print URL comparison
+			t.Logf("Expected URLs: %v", tc.expectedURLs)
+			t.Logf("Found URLs: %v", foundURLs)
+
+			assert.ElementsMatch(t, tc.expectedURLs, foundURLs,
+				"Results don't match expected URLs")
 		})
 	}
 }

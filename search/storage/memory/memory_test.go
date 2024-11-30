@@ -5,7 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonesrussell/goprowl/search/storage"
+	"github.com/jonesrussell/goprowl/search/core/types"
+	"github.com/jonesrussell/goprowl/search/storage/document"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -14,16 +15,16 @@ func TestMemoryStorage(t *testing.T) {
 	store := New()
 
 	// Test document
-	doc := &storage.Document{
-		URL:       "test-url",
-		Title:     "Test Document",
-		Content:   "This is a test document",
-		Type:      "article",
-		CreatedAt: time.Now(),
-		Metadata: map[string]interface{}{
+	doc := document.NewDocument(
+		"test-url",
+		"Test Document",
+		"This is a test document",
+		"article",
+		time.Now(),
+		map[string]interface{}{
 			"author": "Test Author",
 		},
-	}
+	)
 
 	// Test Store
 	t.Run("Store", func(t *testing.T) {
@@ -31,9 +32,9 @@ func TestMemoryStorage(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Verify storage
-		retrieved, err := store.Get(ctx, doc.URL)
+		retrieved, err := store.Get(ctx, doc.GetURL())
 		assert.NoError(t, err)
-		assert.Equal(t, doc.Title, retrieved.Title)
+		assert.Equal(t, doc.GetTitle(), retrieved.GetTitle())
 	})
 
 	// Test GetAll
@@ -41,24 +42,28 @@ func TestMemoryStorage(t *testing.T) {
 		docs, err := store.GetAll(ctx)
 		assert.NoError(t, err)
 		assert.Len(t, docs, 1)
-		assert.Equal(t, doc.URL, docs[0].URL)
+		assert.Equal(t, doc.GetURL(), docs[0].GetURL())
 	})
 
 	// Test BatchStore
 	t.Run("BatchStore", func(t *testing.T) {
-		docs := []*storage.Document{
-			{
-				URL:     "batch-1",
-				Title:   "Batch Doc 1",
-				Content: "Batch content 1",
-				Type:    "article",
-			},
-			{
-				URL:     "batch-2",
-				Title:   "Batch Doc 2",
-				Content: "Batch content 2",
-				Type:    "article",
-			},
+		docs := []types.Document{
+			document.NewDocument(
+				"batch-1",
+				"Batch Doc 1",
+				"Batch content 1",
+				"article",
+				time.Now(),
+				nil,
+			),
+			document.NewDocument(
+				"batch-2",
+				"Batch Doc 2",
+				"Batch content 2",
+				"article",
+				time.Now(),
+				nil,
+			),
 		}
 
 		err := store.BatchStore(ctx, docs)
@@ -77,7 +82,7 @@ func TestMemoryStorage(t *testing.T) {
 
 		// Verify deletion
 		retrieved, err := store.Get(ctx, "test-url")
-		assert.ErrorIs(t, err, storage.ErrDocumentNotFound)
+		assert.ErrorIs(t, err, types.ErrDocumentNotFound)
 		assert.Nil(t, retrieved)
 	})
 
@@ -102,6 +107,6 @@ func TestMemoryStorage(t *testing.T) {
 		docs, err := store.List(ctx)
 		assert.NoError(t, err)
 		assert.Len(t, docs, 1)
-		assert.Equal(t, doc.URL, docs[0].URL)
+		assert.Equal(t, doc.GetURL(), docs[0].GetURL())
 	})
 }

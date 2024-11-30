@@ -3,128 +3,128 @@ package memory
 import (
 	"context"
 	"sync"
-	"time"
 
-	"github.com/jonesrussell/goprowl/search/storage"
+	"github.com/jonesrussell/goprowl/search/core/types"
 )
 
-// MemoryStorage implements StorageAdapter using in-memory map
+// MemoryStorage implements StorageAdapter interface with in-memory storage
 type MemoryStorage struct {
-	mu    sync.RWMutex
-	store map[string]map[string]interface{}
+	docs map[string]types.Document
+	mu   sync.RWMutex
 }
 
-// New creates a new MemoryStorage instance
+// New creates a new memory storage instance
 func New() *MemoryStorage {
 	return &MemoryStorage{
-		store: make(map[string]map[string]interface{}),
+		docs: make(map[string]types.Document),
 	}
 }
 
-// Store saves a document to memory
-func (m *MemoryStorage) Store(ctx context.Context, doc *storage.Document) error {
+// Store stores a document in memory
+func (m *MemoryStorage) Store(ctx context.Context, doc types.Document) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	content := map[string]interface{}{
-		"url":        doc.URL,
-		"title":      doc.Title,
-		"content":    doc.Content,
-		"type":       doc.Type,
-		"created_at": doc.CreatedAt,
-		"metadata":   doc.Metadata,
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		m.docs[doc.GetURL()] = doc
+		return nil
 	}
-
-	m.store[doc.URL] = content
-	return nil
 }
 
-// BatchStore stores multiple documents to storage
-func (m *MemoryStorage) BatchStore(ctx context.Context, docs []*storage.Document) error {
-	for _, doc := range docs {
-		if err := m.Store(ctx, doc); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// GetAll retrieves all documents from storage
-func (m *MemoryStorage) GetAll(ctx context.Context) ([]*storage.Document, error) {
+// Get retrieves a document by ID
+func (m *MemoryStorage) Get(ctx context.Context, id string) (types.Document, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	docs := make([]*storage.Document, 0, len(m.store))
-	for _, content := range m.store {
-		doc := &storage.Document{
-			URL:       content["url"].(string),
-			Title:     content["title"].(string),
-			Content:   content["content"].(string),
-			Type:      content["type"].(string),
-			CreatedAt: content["created_at"].(time.Time),
-			Metadata:  content["metadata"].(map[string]interface{}),
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+		doc, exists := m.docs[id]
+		if !exists {
+			return nil, types.ErrDocumentNotFound
 		}
-		docs = append(docs, doc)
+		return doc, nil
 	}
-	return docs, nil
 }
 
-// Get retrieves a document from memory
-func (m *MemoryStorage) Get(ctx context.Context, id string) (*storage.Document, error) {
+// GetAll retrieves all documents
+func (m *MemoryStorage) GetAll(ctx context.Context) ([]types.Document, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	if content, exists := m.store[id]; exists {
-		return &storage.Document{
-			URL:       content["url"].(string),
-			Title:     content["title"].(string),
-			Content:   content["content"].(string),
-			Type:      content["type"].(string),
-			CreatedAt: content["created_at"].(time.Time),
-			Metadata:  content["metadata"].(map[string]interface{}),
-		}, nil
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+		docs := make([]types.Document, 0, len(m.docs))
+		for _, doc := range m.docs {
+			docs = append(docs, doc)
+		}
+		return docs, nil
 	}
-	return nil, storage.ErrDocumentNotFound
 }
 
-// Delete removes a document from memory
+// Delete removes a document by ID
 func (m *MemoryStorage) Delete(ctx context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	delete(m.store, id)
-	return nil
-}
-
-// List returns all document IDs
-func (m *MemoryStorage) List(ctx context.Context) ([]*storage.Document, error) {
-	return m.GetAll(ctx)
-}
-
-// Search performs a basic search operation
-func (m *MemoryStorage) Search(ctx context.Context, query string) ([]*storage.Document, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	results := make([]*storage.Document, 0)
-	for _, content := range m.store {
-		doc := &storage.Document{
-			URL:       content["url"].(string),
-			Title:     content["title"].(string),
-			Content:   content["content"].(string),
-			Type:      content["type"].(string),
-			CreatedAt: content["created_at"].(time.Time),
-			Metadata:  content["metadata"].(map[string]interface{}),
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		if _, exists := m.docs[id]; !exists {
+			return types.ErrDocumentNotFound
 		}
-		results = append(results, doc)
+		delete(m.docs, id)
+		return nil
 	}
-	return results, nil
 }
 
-// Add this method to MemoryStorage
+// Clear removes all documents
 func (m *MemoryStorage) Clear(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.store = make(map[string]map[string]interface{})
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		m.docs = make(map[string]types.Document)
+		return nil
+	}
+}
+
+// BatchStore stores multiple documents in a batch operation
+func (m *MemoryStorage) BatchStore(ctx context.Context, docs []types.Document) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		for _, doc := range docs {
+			m.docs[doc.GetURL()] = doc
+		}
+		return nil
+	}
+}
+
+// Close implements StorageAdapter interface
+func (m *MemoryStorage) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.docs = nil
 	return nil
+}
+
+// List returns all documents (alias for GetAll)
+func (m *MemoryStorage) List(ctx context.Context) ([]types.Document, error) {
+	return m.GetAll(ctx)
 }

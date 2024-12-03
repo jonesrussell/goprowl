@@ -1,0 +1,43 @@
+version: '3'
+
+tasks:
+  build:
+    desc: Build the application
+    cmds:
+      - go build -v ./...
+
+  test:
+    desc: Run tests
+    cmds:
+      - go test -v -race ./...
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run
+
+  generate:
+    desc: Generate mocks and other generated code
+    cmds:
+      - go generate ./...
+
+  run:
+    desc: Run the application
+    cmds:
+      - go run main.go
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -f goprowl
+      - go clean
+
+  deps:
+    desc: Download dependencies
+    cmds:
+      - go mod download
+      - go mod tidy
+
+  all:
+    desc: Run all basic checks
+    deps: [lint, test, build] 

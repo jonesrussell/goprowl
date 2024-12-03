@@ -48,7 +48,11 @@ func NewSearchCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&query, "query", "q", "", "Search query (required)")
-	cmd.MarkFlagRequired("query")
+	if err := cmd.MarkFlagRequired("query"); err != nil {
+		cmd.RunE = func(cmd *cobra.Command, args []string) error {
+			return fmt.Errorf("failed to mark 'query' flag as required: %w", err)
+		}
+	}
 
 	return cmd
 }

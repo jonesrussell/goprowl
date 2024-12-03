@@ -40,7 +40,11 @@ func NewCrawlCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&opts.url, "url", "u", "", "Starting URL for crawling (required)")
 	cmd.Flags().IntVarP(&opts.depth, "depth", "d", 1, "Maximum crawl depth")
 	cmd.Flags().BoolVarP(&opts.debug, "debug", "v", false, "Enable debug logging")
-	cmd.MarkFlagRequired("url")
+	if err := cmd.MarkFlagRequired("url"); err != nil {
+		cmd.RunE = func(cmd *cobra.Command, args []string) error {
+			return fmt.Errorf("failed to mark flag as required: %w", err)
+		}
+	}
 
 	return cmd
 }

@@ -86,7 +86,11 @@ func Execute() error {
 	if err != nil {
 		return fmt.Errorf("failed to create startup logger: %w", err)
 	}
-	defer globalLogger.Sync()
+	defer func() {
+		if err := globalLogger.Sync(); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to sync logger: %v\n", err)
+		}
+	}()
 
 	// Create fx application with all required modules
 	app := fx.New(

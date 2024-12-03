@@ -89,7 +89,12 @@ func setupCallbacks(c *colly.Collector, m *metrics.ComponentMetrics, logger *zap
 				zap.String("source_url", e.Request.URL.String()),
 				zap.String("link", absLink),
 			)
-			e.Request.Visit(absLink)
+			if err := e.Request.Visit(absLink); err != nil {
+				logger.Debug("failed to visit link",
+					zap.String("link", absLink),
+					zap.Error(err),
+				)
+			}
 		}
 	})
 }
@@ -193,11 +198,13 @@ func (c *CollyCrawler) CrawlWithHandler(ctx context.Context, startURL string, de
 	})
 
 	// Configure parallel requests using config values
-	c.collector.Limit(&colly.LimitRule{
+	if err := c.collector.Limit(&colly.LimitRule{
 		DomainGlob:  "*",
 		Parallelism: c.cfg.Parallelism,
 		RandomDelay: c.cfg.RequestDelay,
-	})
+	}); err != nil {
+		return fmt.Errorf("failed to set crawler limits: %w", err)
+	}
 
 	if err = c.collector.Visit(startURL); err != nil {
 		c.logger.Error("failed to start crawl",

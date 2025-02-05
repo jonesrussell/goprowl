@@ -8,13 +8,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jonesrussell/goprowl/internal/app"
 	"github.com/jonesrussell/goprowl/internal/logger"
 	"github.com/jonesrussell/goprowl/metrics"
 	"github.com/jonesrussell/goprowl/search/crawlers"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
+	"go.uber.org/zap"
 )
 
 var (
@@ -28,8 +28,6 @@ configurable storage backends.`,
 			return cmd.Help()
 		},
 	}
-	// Global logger instance
-	globalLogger logger.Logger
 )
 
 // GetRootCmd returns the root command instance
@@ -41,65 +39,37 @@ func GetRootCmd() *cobra.Command {
 func NewLoggerModule() fx.Option {
 	return fx.Module("logger",
 		fx.Provide(
-			func() (*logger.Logger, error) {
+			func() (logger.Logger, error) {
 				// Check if debug flag is set via cobra command
 				debug := false
 				if cmd := GetRootCmd(); cmd != nil {
 					debug, _ = cmd.Flags().GetBool("debug")
 				}
 
-				var config logger.Config
+				var zapLogger *zap.Logger
+				var err error
 				if debug {
-					// Debug configuration with more details
-					config = logger.NewDevelopmentConfig()
-					config.Level = logger.NewAtomicLevelAt(logger.DebugLevel)
+					zapLogger, err = zap.NewDevelopment()
 				} else {
-					// Production configuration
-					config = logger.NewProductionConfig()
-					config.Level = logger.NewAtomicLevelAt(logger.InfoLevel)
+					zapLogger, err = zap.NewProduction()
 				}
-
-				config.OutputPaths = []string{"stdout"}
-				config.ErrorOutputPaths = []string{"stderr"}
-
-				logger, err := config.Build()
 				if err != nil {
 					return nil, fmt.Errorf("failed to create logger: %w", err)
 				}
-				globalLogger = logger
-				return logger, nil
+
+				return logger.NewZapLogger(zapLogger), nil // Return the custom logger
 			},
 		),
 	)
 }
 
 func Execute() error {
-	// Create base logger for startup
-	var err error
-	globalLogger, err = logger.NewProduction()
-	if err != nil {
-		return fmt.Errorf("failed to create startup logger: %w", err)
-	}
-	defer func() {
-		if err := globalLogger.Sync(); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to sync logger: %v\n", err)
-		}
-	}()
-
 	// Create fx application with all required modules
 	app := fx.New(
 		// Configure logging - reduce fx verbosity
-		fx.WithLogger(func(log *logger.Logger) fxevent.Logger {
+		fx.WithLogger(func(log logger.Logger) fxevent.Logger {
 			return &fxevent.ZapLogger{
-				Logger: log.Named("fx").WithOptions(
-					logger.WrapCore(func(core logger.Core) logger.Core {
-						return logger.NewCore(
-							logger.NewConsoleEncoder(logger.NewDevelopmentEncoderConfig()),
-							logger.AddSync(os.Stdout),
-							logger.WarnLevel,
-						)
-					}),
-				),
+				Logger: log, // Use the custom logger
 			}
 		}),
 
@@ -107,7 +77,6 @@ func Execute() error {
 		NewLoggerModule(),
 
 		// Add other modules that depend on the logger
-		app.Module,
 		metrics.Module,
 		crawlers.Module,
 
@@ -119,9 +88,16 @@ func Execute() error {
 	startCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
+	var globalLogger logger.Logger
 	if err := app.Start(startCtx); err != nil {
-		globalLogger.Error("failed to start application", logger.NewField("error", err))
 		return fmt.Errorf("failed to start application: %w", err)
+	}
+
+	// Retrieve the logger from the app
+	if err := app.Invoke(func(l logger.Logger) {
+		globalLogger = l
+	}); err != nil {
+		return fmt.Errorf("failed to retrieve logger: %w", err)
 	}
 
 	// Create a cancellable context with timeout
@@ -140,14 +116,12 @@ func Execute() error {
 	go func() {
 		select {
 		case sig := <-sigChan:
-			globalLogger.Info("received signal, initiating graceful shutdown",
-				logger.NewField("signal", sig.String()))
+			globalLogger.Info("received signal, initiating graceful shutdown", zap.String("signal", sig.String()))
 			cancel()
 
 			select {
 			case sig := <-sigChan:
-				globalLogger.Fatal("received second signal, force quitting",
-					logger.NewField("signal", sig.String()))
+				globalLogger.Fatal("received second signal, force quitting", zap.String("signal", sig.String()))
 			case <-time.After(10 * time.Second):
 				globalLogger.Fatal("graceful shutdown timed out, force quitting")
 			}
@@ -166,7 +140,7 @@ func Execute() error {
 	// Execute with context and handle any errors
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		signalCancel() // Clean up signal handler
-		globalLogger.Error("execution error", logger.NewField("error", err))
+		globalLogger.Error("execution error", zap.Error(err))
 		return fmt.Errorf("execution error: %w", err)
 	}
 

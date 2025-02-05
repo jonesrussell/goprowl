@@ -8,11 +8,11 @@ import (
 
 // Logger is an interface for logging
 type Logger interface {
-	Debug(ctx context.Context, msg string, fields ...Field)
-	Info(ctx context.Context, msg string, fields ...Field)
-	Warn(ctx context.Context, msg string, fields ...Field)
-	Error(ctx context.Context, msg string, fields ...Field)
-	Fatal(ctx context.Context, msg string, fields ...Field)
+	Debug(ctx context.Context, msg string, fields ...zap.Field)
+	Info(ctx context.Context, msg string, fields ...zap.Field)
+	Warn(ctx context.Context, msg string, fields ...zap.Field)
+	Error(ctx context.Context, msg string, fields ...zap.Field)
+	Fatal(ctx context.Context, msg string, fields ...zap.Field)
 }
 
 // Field represents a log field
@@ -40,5 +40,28 @@ func (l *zapLogger) Error(ctx context.Context, msg string, fields ...Field) {
 }
 
 func (l *zapLogger) Fatal(ctx context.Context, msg string, fields ...Field) {
+	l.logger.Fatal(msg, fields...)
+}
+
+// ZapLogger is a struct that implements the Logger interface.
+type ZapLogger struct {
+	logger *zap.Logger
+}
+
+// NewZapLogger creates a new ZapLogger instance.
+func NewZapLogger(logger *zap.Logger) *ZapLogger {
+	return &ZapLogger{logger: logger}
+}
+
+// Implement the Logger interface methods
+func (l *ZapLogger) Info(msg string, fields ...zap.Field) {
+	l.logger.Info(msg, fields...)
+}
+
+func (l *ZapLogger) Error(msg string, fields ...zap.Field) {
+	l.logger.Error(msg, fields...)
+}
+
+func (l *ZapLogger) Fatal(msg string, fields ...zap.Field) {
 	l.logger.Fatal(msg, fields...)
 }

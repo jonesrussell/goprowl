@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jonesrussell/goprowl/internal/logger"
 	"github.com/jonesrussell/goprowl/search/crawlers"
 	"github.com/jonesrussell/goprowl/search/engine"
 	"go.uber.org/fx"
-	"go.uber.org/zap"
 )
 
 // Config holds application configuration
@@ -23,7 +23,7 @@ type Application struct {
 	engine     engine.SearchEngine
 	config     *Config
 	shutdowner fx.Shutdowner
-	logger     *zap.Logger
+	logger     logger.Logger
 }
 
 // NewApplication creates a new Application instance
@@ -32,7 +32,7 @@ func NewApplication(
 	engine engine.SearchEngine,
 	config *Config,
 	shutdowner fx.Shutdowner,
-	logger *zap.Logger,
+	logger logger.Logger,
 ) *Application {
 	return &Application{
 		crawler:    crawler,
@@ -49,21 +49,21 @@ func (app *Application) Search(queryStr string) error {
 	query, err := processor.ParseQuery(queryStr)
 	if err != nil {
 		app.logger.Error("failed to parse query",
-			zap.String("query", queryStr),
-			zap.Error(err))
+			app.logger.NewField("query", queryStr),
+			app.logger.NewField("error", err))
 		return fmt.Errorf("failed to parse query: %w", err)
 	}
 
 	results, err := app.engine.Search(query)
 	if err != nil {
 		app.logger.Error("search failed",
-			zap.String("query", queryStr),
-			zap.Error(err))
+			app.logger.NewField("query", queryStr),
+			app.logger.NewField("error", err))
 		return fmt.Errorf("search failed: %w", err)
 	}
 
 	app.logger.Info("search completed",
-		zap.Int64("total_results", results.Metadata["total"].(int64)))
+		app.logger.NewField("total_results", results.Metadata["total"].(int64)))
 	total := results.Metadata["total"].(int64)
 	fmt.Printf("Found %d results:\n\n", total)
 	for _, hit := range results.Hits {
@@ -83,13 +83,12 @@ func (app *Application) ListDocuments() error {
 
 	docs, err := app.engine.List()
 	if err != nil {
-		app.logger.Error("failed to list documents", zap.Error(err))
+		app.logger.Error("failed to list documents", app.logger.NewField("error", err))
 		return fmt.Errorf("failed to list documents: %w", err)
 	}
 
 	app.logger.Info("documents retrieved successfully",
-		zap.Int("document_count", len(docs)),
-	)
+		app.logger.NewField("document_count", len(docs)))
 
 	return nil
 }
@@ -97,7 +96,7 @@ func (app *Application) ListDocuments() error {
 // Shutdown gracefully shuts down the application
 func (app *Application) Shutdown() {
 	if err := app.shutdowner.Shutdown(); err != nil {
-		app.logger.Error("error shutting down", zap.Error(err))
+		app.logger.Error("error shutting down", app.logger.NewField("error", err))
 	}
 	app.logger.Info("application shutdown complete")
 }
@@ -105,19 +104,19 @@ func (app *Application) Shutdown() {
 // Run starts the application
 func (app *Application) Run(ctx context.Context) error {
 	app.logger.Info("starting application",
-		zap.String("start_url", app.config.StartURL),
-		zap.Int("max_depth", app.config.MaxDepth))
+		app.logger.NewField("start_url", app.config.StartURL),
+		app.logger.NewField("max_depth", app.config.MaxDepth))
 
 	crawlCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
 	if err := app.engine.Clear(); err != nil {
-		app.logger.Error("failed to clear existing data", zap.Error(err))
+		app.logger.Error("failed to clear existing data", app.logger.NewField("error", err))
 		return fmt.Errorf("failed to clear existing data: %w", err)
 	}
 
 	if err := app.crawler.Crawl(crawlCtx, app.config.StartURL, app.config.MaxDepth); err != nil {
-		app.logger.Error("crawl failed", zap.Error(err))
+		app.logger.Error("crawl failed", app.logger.NewField("error", err))
 		return fmt.Errorf("crawl failed: %w", err)
 	}
 

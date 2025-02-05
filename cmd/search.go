@@ -23,11 +23,11 @@ func NewSearchCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return fx.New(
 				app.Module,
-				fx.Invoke(func(searchEngine engine.SearchEngine, logger *logger.Logger) error {
+				fx.Invoke(func(searchEngine engine.SearchEngine, logger logger.Logger) error {
 					processor := engine.NewQueryProcessor()
 					searchQuery, err := processor.ParseQuery(query)
 					if err != nil {
-						logger.Error("failed to parse query", logger.NewField("query", query))
+						logger.Error(cmd.Context(), "failed to parse query", logger.NewField("query", query))
 						return fmt.Errorf("failed to parse query: %w", err)
 					}
 
@@ -37,7 +37,7 @@ func NewSearchCmd() *cobra.Command {
 					// Perform search
 					results, err := searchEngine.Search(searchQuery)
 					if err != nil {
-						logger.Error("search failed", logger.NewField("error", err))
+						logger.Error(cmd.Context(), "search failed", logger.NewField("error", err))
 						return fmt.Errorf("search failed: %w", err)
 					}
 

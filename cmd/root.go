@@ -28,6 +28,7 @@ configurable storage backends.`,
 			return cmd.Help()
 		},
 	}
+	globalLogger logger.Logger
 )
 
 // GetRootCmd returns the root command instance
@@ -35,7 +36,7 @@ func GetRootCmd() *cobra.Command {
 	return rootCmd
 }
 
-// LoggerModule provides the application-wide logger
+// NewLoggerModule provides the application-wide logger
 func NewLoggerModule() fx.Option {
 	return fx.Module("logger",
 		fx.Provide(
@@ -57,94 +58,82 @@ func NewLoggerModule() fx.Option {
 					return nil, fmt.Errorf("failed to create logger: %w", err)
 				}
 
-				return logger.NewZapLogger(zapLogger), nil // Return the custom logger
+				return logger.NewZapLogger(zapLogger), nil
 			},
 		),
 	)
 }
 
 func Execute() error {
-	// Create fx application with all required modules
 	app := fx.New(
-		// Configure logging - reduce fx verbosity
-		fx.WithLogger(func(log logger.Logger) fxevent.Logger {
+		fx.WithLogger(func() fxevent.Logger {
 			return &fxevent.ZapLogger{
-				Logger: log, // Use the custom logger
+				Logger: zap.L(),
 			}
 		}),
 
-		// Add the logger module
 		NewLoggerModule(),
-
-		// Add other modules that depend on the logger
 		metrics.Module,
 		crawlers.Module,
 
-		// Configure error handling
-		fx.NopLogger,
+		fx.Invoke(func(l logger.Logger) {
+			globalLogger = l
+		}),
 	)
 
-	// Start the application
 	startCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	var globalLogger logger.Logger
 	if err := app.Start(startCtx); err != nil {
 		return fmt.Errorf("failed to start application: %w", err)
 	}
 
-	// Retrieve the logger from the app
-	if err := app.Invoke(func(l logger.Logger) {
-		globalLogger = l
-	}); err != nil {
-		return fmt.Errorf("failed to retrieve logger: %w", err)
-	}
-
-	// Create a cancellable context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	// Create buffered channel for signals
 	sigChan := make(chan os.Signal, 2)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
-	// Handle interrupt signals in a separate context
 	signalCtx, signalCancel := context.WithCancel(context.Background())
 	defer signalCancel()
 
-	// Update signal handling to use logger
 	go func() {
 		select {
 		case sig := <-sigChan:
-			globalLogger.Info("received signal, initiating graceful shutdown", zap.String("signal", sig.String()))
+			globalLogger.Info(context.Background(), "received signal", logger.Field{Key: "signal", Value: sig.String()})
 			cancel()
 
 			select {
 			case sig := <-sigChan:
-				globalLogger.Fatal("received second signal, force quitting", zap.String("signal", sig.String()))
+				globalLogger.Fatal(context.Background(), "received signal", logger.Field{Key: "signal", Value: sig.String()})
 			case <-time.After(10 * time.Second):
-				globalLogger.Fatal("graceful shutdown timed out, force quitting")
+				globalLogger.Fatal(context.Background(), "graceful shutdown timed out, force quitting")
 			}
 		case <-signalCtx.Done():
 			return
 		}
 	}()
 
-	// Add commands
 	rootCmd.AddCommand(
 		NewCrawlCmd(),
 		NewSearchCmd(),
 		NewListCmd(),
 	)
 
-	// Execute with context and handle any errors
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
-		signalCancel() // Clean up signal handler
-		globalLogger.Error("execution error", zap.Error(err))
+		signalCancel()
+		globalLogger.Error(context.Background(), "error occurred", logger.Field{Key: "error", Value: err.Error()})
 		return fmt.Errorf("execution error: %w", err)
 	}
 
-	signalCancel() // Clean up signal handler
-	globalLogger.Info("application completed successfully")
+	signalCancel()
+	globalLogger.Info(context.Background(), "application completed successfully")
 	return nil
+}
+
+func main() {
+	if err := Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 }

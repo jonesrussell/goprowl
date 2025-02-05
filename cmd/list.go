@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
+	"go.uber.org/zap"
 )
 
 type ListOptions struct {
@@ -51,23 +52,29 @@ Examples:
 }
 
 func runList(ctx context.Context, opts *ListOptions) error {
-	logLevel := logger.InfoLevel
+	var logConfig logger.Config
 	if opts.debug {
-		logLevel = logger.DebugLevel
+		logConfig = logger.NewDevelopmentConfig()
+	} else {
+		logConfig = logger.NewProductionConfig()
 	}
 
 	options := []fx.Option{
-		fx.WithLogger(func(log *logger.Logger) fxevent.Logger {
+		fx.WithLogger(func(log *zap.Logger) fxevent.Logger {
 			return &fxevent.ZapLogger{Logger: log}
 		}),
-		fx.Provide(func() (*logger.Logger, error) {
-			config := logger.NewProductionConfig()
-			config.Level = logger.NewAtomicLevelAt(logLevel)
-			return config.Build()
-		}),
+		fx.Provide(
+			func() logger.Logger {
+				l, _ := logger.New(logConfig)
+				return l
+			},
+			func() *ListOptions {
+				return opts
+			},
+		),
 		app.Module,
 		metrics.Module,
-		fx.Invoke(func(engine engine.SearchEngine, logger *logger.Logger, metrics *metrics.ComponentMetrics) error {
+		fx.Invoke(func(engine engine.SearchEngine, logger logger.Logger, metrics *metrics.ComponentMetrics) error {
 			startTime := time.Now()
 			defer func() {
 				metrics.ObserveHistogram(
@@ -76,7 +83,7 @@ func runList(ctx context.Context, opts *ListOptions) error {
 				)
 			}()
 
-			logger.Info("listing documents")
+			logger.Info(ctx, "listing documents")
 			docs, err := engine.List()
 			if err != nil {
 				metrics.IncCounter("list_documents_errors_total", 1)
@@ -92,7 +99,18 @@ func runList(ctx context.Context, opts *ListOptions) error {
 		options = append(options, fx.NopLogger)
 	}
 
-	return fx.New(options...).Start(ctx)
+	app := fx.New(options...)
+
+	startCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	if err := app.Start(startCtx); err != nil {
+		return fmt.Errorf("failed to start application: %w", err)
+	}
+
+	defer app.Stop(ctx)
+
+	return nil
 }
 
 func displayDocuments(docs []engine.Document, format string) error {

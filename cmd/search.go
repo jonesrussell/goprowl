@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/jonesrussell/goprowl/internal/app"
+	"github.com/jonesrussell/goprowl/internal/logger"
 	"github.com/jonesrussell/goprowl/search/engine"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
@@ -22,10 +23,11 @@ func NewSearchCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return fx.New(
 				app.Module,
-				fx.Invoke(func(searchEngine engine.SearchEngine) error {
+				fx.Invoke(func(searchEngine engine.SearchEngine, logger *logger.Logger) error {
 					processor := engine.NewQueryProcessor()
 					searchQuery, err := processor.ParseQuery(query)
 					if err != nil {
+						logger.Error("failed to parse query", logger.NewField("query", query))
 						return fmt.Errorf("failed to parse query: %w", err)
 					}
 
@@ -35,6 +37,7 @@ func NewSearchCmd() *cobra.Command {
 					// Perform search
 					results, err := searchEngine.Search(searchQuery)
 					if err != nil {
+						logger.Error("search failed", logger.NewField("error", err))
 						return fmt.Errorf("search failed: %w", err)
 					}
 

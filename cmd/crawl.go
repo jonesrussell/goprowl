@@ -9,13 +9,13 @@ import (
 	"time"
 
 	"github.com/jonesrussell/goprowl/internal/app"
+	"github.com/jonesrussell/goprowl/internal/logger"
 	"github.com/jonesrussell/goprowl/metrics"
 	"github.com/jonesrussell/goprowl/search/adapters/storage"
 	"github.com/jonesrussell/goprowl/search/crawlers"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
-	"go.uber.org/zap"
 )
 
 // CrawlOptions holds the command-line options for the crawl command
@@ -72,15 +72,15 @@ func runCrawl(ctx context.Context, opts *CrawlOptions) error {
 // createApp initializes the fx application with the necessary modules and config.
 func createApp(opts *CrawlOptions) *fx.App {
 	// Set logging level based on debug flag
-	logLevel := zap.WarnLevel
+	logLevel := logger.InfoLevel
 	if opts.debug {
-		logLevel = zap.DebugLevel
+		logLevel = logger.DebugLevel
 	}
 
 	options := []fx.Option{
-		fx.WithLogger(func(log *zap.Logger) fxevent.Logger {
+		fx.WithLogger(func(log *logger.Logger) fxevent.Logger {
 			return &fxevent.ZapLogger{
-				Logger: log.WithOptions(zap.IncreaseLevel(logLevel)),
+				Logger: log.WithOptions(logger.IncreaseLevel(logLevel)),
 			}
 		}),
 		NewLoggerModule(),
@@ -103,19 +103,19 @@ func createApp(opts *CrawlOptions) *fx.App {
 			shutdowner fx.Shutdowner,
 			crawler crawlers.Crawler,
 			storageAdapter *storage.StorageAdapter,
-			logger *zap.Logger,
+			logger *logger.Logger,
 		) error {
 			lifecycle.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
-					logger.Info("starting crawler", zap.String("url", opts.url), zap.Int("depth", opts.depth))
+					logger.Info("starting crawler", logger.NewField("url", opts.url), logger.NewField("depth", opts.depth))
 
 					go func() {
 						if err := crawler.CrawlWithHandler(ctx, opts.url, opts.depth, storageAdapter.HandleCrawledPage); err != nil {
-							logger.Error("crawler failed", zap.Error(err))
+							logger.Error("crawler failed", logger.NewField("error", err))
 						}
 
 						if err := shutdowner.Shutdown(); err != nil {
-							logger.Error("shutdown failed", zap.Error(err))
+							logger.Error("shutdown failed", logger.NewField("error", err))
 						}
 					}()
 					return nil

@@ -12,12 +12,12 @@ import (
 	"time"
 
 	"github.com/jonesrussell/goprowl/internal/app"
+	"github.com/jonesrussell/goprowl/internal/logger"
 	"github.com/jonesrussell/goprowl/metrics"
 	"github.com/jonesrussell/goprowl/search/engine"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
-	"go.uber.org/zap"
 )
 
 type ListOptions struct {
@@ -51,23 +51,23 @@ Examples:
 }
 
 func runList(ctx context.Context, opts *ListOptions) error {
-	logLevel := zap.InfoLevel
+	logLevel := logger.InfoLevel
 	if opts.debug {
-		logLevel = zap.DebugLevel
+		logLevel = logger.DebugLevel
 	}
 
 	options := []fx.Option{
-		fx.WithLogger(func(log *zap.Logger) fxevent.Logger {
+		fx.WithLogger(func(log *logger.Logger) fxevent.Logger {
 			return &fxevent.ZapLogger{Logger: log}
 		}),
-		fx.Provide(func() (*zap.Logger, error) {
-			config := zap.NewProductionConfig()
-			config.Level = zap.NewAtomicLevelAt(logLevel)
+		fx.Provide(func() (*logger.Logger, error) {
+			config := logger.NewProductionConfig()
+			config.Level = logger.NewAtomicLevelAt(logLevel)
 			return config.Build()
 		}),
 		app.Module,
 		metrics.Module,
-		fx.Invoke(func(engine engine.SearchEngine, logger *zap.Logger, metrics *metrics.ComponentMetrics) error {
+		fx.Invoke(func(engine engine.SearchEngine, logger *logger.Logger, metrics *metrics.ComponentMetrics) error {
 			startTime := time.Now()
 			defer func() {
 				metrics.ObserveHistogram(

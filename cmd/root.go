@@ -9,20 +9,18 @@ import (
 	"time"
 
 	"github.com/jonesrussell/goprowl/internal/app"
+	"github.com/jonesrussell/goprowl/internal/logger"
 	"github.com/jonesrussell/goprowl/metrics"
 	"github.com/jonesrussell/goprowl/search/crawlers"
 	"github.com/spf13/cobra"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 var (
 	rootCmd = &cobra.Command{
 		Use:   "goprowl",
 		Short: "GoProwl is a web crawler and search engine",
-
 		Long: `A flexible web crawler and search engine built with Go 
 that supports full-text search, concurrent crawling, and 
 configurable storage backends.`,
@@ -31,7 +29,7 @@ configurable storage backends.`,
 		},
 	}
 	// Global logger instance
-	globalLogger *zap.Logger
+	globalLogger logger.Logger
 )
 
 // GetRootCmd returns the root command instance
@@ -43,25 +41,22 @@ func GetRootCmd() *cobra.Command {
 func NewLoggerModule() fx.Option {
 	return fx.Module("logger",
 		fx.Provide(
-			func() (*zap.Logger, error) {
+			func() (*logger.Logger, error) {
 				// Check if debug flag is set via cobra command
 				debug := false
 				if cmd := GetRootCmd(); cmd != nil {
 					debug, _ = cmd.Flags().GetBool("debug")
 				}
 
-				var config zap.Config
+				var config logger.Config
 				if debug {
 					// Debug configuration with more details
-					config = zap.NewDevelopmentConfig()
-					config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
-					config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-					config.EncoderConfig.TimeKey = "ts"
-					config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+					config = logger.NewDevelopmentConfig()
+					config.Level = logger.NewAtomicLevelAt(logger.DebugLevel)
 				} else {
 					// Production configuration
-					config = zap.NewProductionConfig()
-					config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
+					config = logger.NewProductionConfig()
+					config.Level = logger.NewAtomicLevelAt(logger.InfoLevel)
 				}
 
 				config.OutputPaths = []string{"stdout"}
@@ -72,7 +67,6 @@ func NewLoggerModule() fx.Option {
 					return nil, fmt.Errorf("failed to create logger: %w", err)
 				}
 				globalLogger = logger
-				zap.ReplaceGlobals(logger)
 				return logger, nil
 			},
 		),
@@ -82,7 +76,7 @@ func NewLoggerModule() fx.Option {
 func Execute() error {
 	// Create base logger for startup
 	var err error
-	globalLogger, err = zap.NewProduction()
+	globalLogger, err = logger.NewProduction()
 	if err != nil {
 		return fmt.Errorf("failed to create startup logger: %w", err)
 	}
@@ -95,15 +89,14 @@ func Execute() error {
 	// Create fx application with all required modules
 	app := fx.New(
 		// Configure logging - reduce fx verbosity
-		fx.WithLogger(func(log *zap.Logger) fxevent.Logger {
-			// Create a new logger instead of trying to modify level
+		fx.WithLogger(func(log *logger.Logger) fxevent.Logger {
 			return &fxevent.ZapLogger{
 				Logger: log.Named("fx").WithOptions(
-					zap.WrapCore(func(core zapcore.Core) zapcore.Core {
-						return zapcore.NewCore(
-							zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig()),
-							zapcore.AddSync(os.Stdout),
-							zapcore.WarnLevel,
+					logger.WrapCore(func(core logger.Core) logger.Core {
+						return logger.NewCore(
+							logger.NewConsoleEncoder(logger.NewDevelopmentEncoderConfig()),
+							logger.AddSync(os.Stdout),
+							logger.WarnLevel,
 						)
 					}),
 				),
@@ -127,7 +120,7 @@ func Execute() error {
 	defer cancel()
 
 	if err := app.Start(startCtx); err != nil {
-		globalLogger.Error("failed to start application", zap.Error(err))
+		globalLogger.Error("failed to start application", logger.NewField("error", err))
 		return fmt.Errorf("failed to start application: %w", err)
 	}
 
@@ -148,13 +141,13 @@ func Execute() error {
 		select {
 		case sig := <-sigChan:
 			globalLogger.Info("received signal, initiating graceful shutdown",
-				zap.String("signal", sig.String()))
+				logger.NewField("signal", sig.String()))
 			cancel()
 
 			select {
 			case sig := <-sigChan:
 				globalLogger.Fatal("received second signal, force quitting",
-					zap.String("signal", sig.String()))
+					logger.NewField("signal", sig.String()))
 			case <-time.After(10 * time.Second):
 				globalLogger.Fatal("graceful shutdown timed out, force quitting")
 			}
@@ -173,7 +166,7 @@ func Execute() error {
 	// Execute with context and handle any errors
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		signalCancel() // Clean up signal handler
-		globalLogger.Error("execution error", zap.Error(err))
+		globalLogger.Error("execution error", logger.NewField("error", err))
 		return fmt.Errorf("execution error: %w", err)
 	}
 

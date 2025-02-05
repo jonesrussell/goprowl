@@ -1,149 +1,80 @@
-# Core Project Guidelines
-core: 
-  - Always use the project's import path github.com/jonesrussell/goprowl
-  - Always implement proper interface abstractions following Go best practices
-  - Always use uber-fx for dependency injection and application lifecycle management
+core:
+  - Use the project's import path `github.com/jonesrussell/goprowl`
+  - Implement proper interface abstractions following Go best practices
+  - Use uber-fx for dependency injection and application lifecycle management
 
-# Dependency Injection & Application Structure
 dependency-injection:
-  - Initialize fx.App in cmd/root.go's Execute() function
-  - Use fx.Module for organizing dependencies
-  - Handle both fx.App and cobra.Command errors appropriately
-  - Ensure proper logger initialization before other dependencies
-  - Use fx.WithLogger for consistent logging configuration
+  - Initialize `fx.App` in `cmd/root.go`'s `Execute()` function
+  - Organize dependencies with `fx.Module`
+  - Handle errors from both `fx.App` and `cobra.Command`
+  - Ensure logger initialization before other dependencies
+  - Use `fx.WithLogger` for consistent logging
 
-# Core Dependencies
 core-dependencies:
-  - github.com/gocolly/colly/v2 for web crawling
-  - github.com/gocolly/colly/v2/debug for debugging
-  - bleve/v2 for search engine functionality
-  - go.uber.org/zap for structured logging
-  - github.com/prometheus/client_golang for metrics
+  - `github.com/gocolly/colly/v2` for web crawling
+  - `github.com/gocolly/colly/v2/debug` for debugging
+  - `bleve/v2` for search engine functionality
+  - `go.uber.org/zap` for structured logging
+  - `github.com/prometheus/client_golang` for metrics
 
-# Concurrency & Safety
-concurrency-safety:
-  - Always use sync.RWMutex for concurrent operations in storage implementations
-  - Always use context.Context for cancellation and timeouts
-  - Never skip error handling
-  - Never use init() functions except for fx.Module registration
-
-# Code Organization
-code-organization:
-  - Files named types.go should only contain interface and type definitions
-
-# Component Separation
-component-separation:
-  - The separation of concerns is now:
-    - search/engine/types.go: Interface and type definitions
-    - search/engine/query.go: Query parsing and processing
-    - search/engine/basic_search.go: Search implementation and relevancy calculation
-    - search/crawlers/: Web crawling implementation
-    - search/storage/: Storage backend implementations
-    - metrics/: Application metrics and monitoring
-
-# Command Structure
-command-structure:
-  - cmd/root.go: Main application setup and fx integration
-  - cmd/<command>.go: Individual command implementations with proper DI
-
-# Cobra CLI Standards
-cobra-cli-standards:
-  - Use short and long flags consistently (-v, --verbose)
-  - Include command descriptions and examples
-  - Implement proper flag validation
-  - Use RunE instead of Run for error handling
-  - Follow naming convention: New<Command>Cmd()
-  - Include required flags using MarkFlagRequired()
-  - Group related flags using Flag Groups when applicable
-  - Implement proper context handling
-  - Include completion commands where appropriate
-
-# Command Documentation
-command-documentation:
-  - Each command should include:
-    - Short description (one line)
-    - Long description (detailed usage)
-    - Example usage
-    - Flag descriptions
-    - Required/optional status for each flag
-
-# Command Error Handling
-command-error-handling:
-  - Return errors rather than calling os.Exit
-  - Use fmt.Errorf with %w for error wrapping
-  - Include context in error messages
-  - Handle flag validation before execution
-  - Implement proper cleanup in error cases
-
-# Command Testing
-command-testing:
-  - Test flag parsing
-  - Test command execution
-  - Mock dependencies using interfaces
-  - Test error conditions
-  - Include integration tests for commands
-
-# Command Metrics
-command-metrics:
-  - Track command execution time
-  - Record command usage statistics
-  - Monitor error rates
-  - Include command-specific metrics
-
-# Command Logging
-command-logging:
-  - Use structured logging with zap
-  - Include command context in logs
-  - Use appropriate log levels
-  - Log command start/completion
-  - Include relevant command parameters in logs
-
-# Debug Mode Standards
-debug-mode-standards:
-  - When debug flag (-v, --verbose) is enabled:
-    - Show full dependency injection logs
-    - Use development logger configuration
-    - Include debug level messages
-    - Show detailed timestamps
-    - Include caller information
-    - Display colored log output
-    - Show full error stack traces
-
-# Logging Standards
 logging-standards:
-  - Always use structured logging with zap
+  - Use structured logging with zap
   - Include relevant context in log fields
   - Use appropriate log levels (debug, info, warn, error)
 
-# Error Handling
-error-handling:
-  - Always implement proper error handling and avoid panics
-  - Use error wrapping with fmt.Errorf("context: %w", err)
-  - Return errors rather than logging and continuing
+command-structure:
+  - `cmd/root.go`: Main application setup and fx integration
+  - `cmd/<command>.go`: Individual command implementations with proper DI
 
-# Testing & Quality
+command-documentation:
+  - Each command should include:
+    - Short and long descriptions
+    - Example usage
+    - Flag descriptions and required/optional status
+
+command-error-handling:
+  - Return errors instead of calling `os.Exit`
+  - Use `fmt.Errorf` with `%w` for error wrapping
+  - Include context in error messages
+  - Validate flags before execution
+
+command-testing:
+  - Test flag parsing and command execution
+  - Mock dependencies using interfaces
+  - Include integration tests
+
+command-metrics:
+  - Track execution time and usage statistics
+  - Monitor error rates
+  - Include command-specific metrics
+
+debug-mode-standards:
+  - When the debug flag (-v, --verbose) is enabled:
+    - Show full dependency injection logs
+    - Use development logger configuration
+    - Include detailed timestamps and caller information
+
+error-handling:
+  - Implement proper error handling and avoid panics
+  - Use error wrapping with `fmt.Errorf("context: %w", err)`
+
 testing-quality:
-  - Run code through golangci-lint before suggesting changes
+  - Run code through `golangci-lint` before suggesting changes
   - Implement unit tests for all components
   - Use mockery for interface mocking
-  - Include integration tests where appropriate
 
-# Metrics & Monitoring
 metrics-monitoring:
-  - Always implement prometheus metrics for key operations
+  - Implement Prometheus metrics for key operations
   - Use proper metric types (counter, gauge, histogram)
-  - Include component-specific metrics
 
-# Documentation
 documentation:
   - Include godoc comments for exported types and functions
-  - Maintain README.md with current setup instructions
+  - Maintain `README.md` with setup instructions
   - Document configuration options
 
-# Custom Logger Implementation Guidelines
 custom-logger-implementation:
-  - Implement a custom logger interface that wraps around zap.Logger.
-  - Ensure the custom logger provides methods for Info, Error, Debug, and Fatal logging levels.
-  - Include context handling in logging methods to support structured logging.
-  - Ensure that the logger can be initialized with different configurations (development vs production).
-  - Use the custom logger consistently across all components of the application.
+  - Implement a custom logger interface wrapping `zap.Logger`
+  - Provide methods for Info, Error, Debug, and Fatal logging levels
+  - Include context handling in logging methods
+  - Ensure logger can be initialized with different configurations (development vs production)
+  - Use the custom logger consistently across all components

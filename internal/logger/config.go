@@ -1,6 +1,9 @@
+// internal/logger/config.go
 package logger
 
 import (
+	"os"
+
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -32,11 +35,6 @@ func New(config Config) (Logger, error) {
 	return &zapLogger{logger: logger}, nil
 }
 
-// NewField creates a new log field
-func NewField(key string, value interface{}) Field {
-	return zap.Any(key, value)
-}
-
 // NewProductionConfig creates a new production logger configuration
 func NewProductionConfig() Config {
 	return Config{
@@ -58,4 +56,31 @@ func NewDevelopmentConfig() Config {
 // NewAtomicLevelAt creates a new atomic level for logging
 func NewAtomicLevelAt(level zapcore.Level) zap.AtomicLevel {
 	return zap.NewAtomicLevelAt(level)
+}
+
+// LoadConfigFromEnv loads logger configuration from environment variables
+func LoadConfigFromEnv() Config {
+	return Config{
+		Level:            zap.NewAtomicLevelAt(getLogLevel()),
+		OutputPaths:      []string{os.Getenv("LOG_OUTPUT_PATHS")},
+		ErrorOutputPaths: []string{os.Getenv("LOG_ERROR_OUTPUT_PATHS")},
+	}
+}
+
+// getLogLevel retrieves log level from environment variable
+func getLogLevel() zapcore.Level {
+	switch os.Getenv("LOG_LEVEL") {
+	case "debug":
+		return zap.DebugLevel
+	case "info":
+		return zap.InfoLevel
+	case "warn":
+		return zap.WarnLevel
+	case "error":
+		return zap.ErrorLevel
+	case "fatal":
+		return zap.FatalLevel
+	default:
+		return zap.InfoLevel
+	}
 }

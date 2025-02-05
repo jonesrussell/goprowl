@@ -14,9 +14,3 @@ RUN go install -tags 'mysql' github.com/golang-migrate/migrate/v4/cmd/migrate@la
 
 # Ensure the migrate binary is in the PATH for vscode user
 ENV PATH="/home/vscode/go/bin:${PATH}"
-
-# Switch back to root for any further operations
-# USER root
-
-# [Optional] Uncomment this line to install global node packages.
-# RUN su vscode -c "source /usr/local/share/nvm/nvm.sh && npm install -g <your-package-here>" 2>&1

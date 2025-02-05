@@ -45,14 +45,10 @@
 				"ms-azuretools.vscode-docker",
 				"jinliming2.vscode-go-template",
 				"GitHub.vscode-github-actions",
-				"humao.rest-client",
-				"mtxr.sqltools-driver-mysql",
-				"mtxr.sqltools",
 				"eamodio.gitlens",
 				"GitHub.vscode-pull-request-github"
 			]
 		}
 	},
-	"forwardPorts": [9090, 9091],
-	"runServices": ["app", "prometheus", "pushgateway"]
+	"forwardPorts": [9090, 9091]
 }

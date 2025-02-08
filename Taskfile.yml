@@ -21,10 +21,10 @@ tasks:
     cmds:
       - go generate ./...
 
-  run:
+  crawl:
     desc: Run the application
     cmds:
-      - go run main.go
+      - go run main.go crawl --url=https://www.elliotlaketoday.com/opp-beat
 
   clean:
     desc: Clean build artifacts

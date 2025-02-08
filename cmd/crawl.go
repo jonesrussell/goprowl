@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jonesrussell/goprowl/internal/app"
+	"github.com/jonesrussell/goprowl/internal/logger"
 	"github.com/jonesrussell/goprowl/metrics"
 	"github.com/jonesrussell/goprowl/search/adapters/storage"
 	"github.com/jonesrussell/goprowl/search/crawlers"
@@ -41,9 +42,8 @@ func NewCrawlCmd() *cobra.Command {
 	cmd.Flags().IntVarP(&opts.depth, "depth", "d", 1, "Maximum crawl depth")
 	cmd.Flags().BoolVarP(&opts.debug, "debug", "v", false, "Enable debug logging")
 	if err := cmd.MarkFlagRequired("url"); err != nil {
-		cmd.RunE = func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("failed to mark flag as required: %w", err)
-		}
+		cmd.PrintErrf("failed to mark flag as required: %v\n", err)
+		return nil
 	}
 
 	return cmd
@@ -72,16 +72,16 @@ func runCrawl(ctx context.Context, opts *CrawlOptions) error {
 // createApp initializes the fx application with the necessary modules and config.
 func createApp(opts *CrawlOptions) *fx.App {
 	// Set logging level based on debug flag
-	logLevel := zap.WarnLevel
+	var logConfig logger.Config
 	if opts.debug {
-		logLevel = zap.DebugLevel
+		logConfig = logger.NewDevelopmentConfig()
+	} else {
+		logConfig = logger.NewProductionConfig()
 	}
 
 	options := []fx.Option{
 		fx.WithLogger(func(log *zap.Logger) fxevent.Logger {
-			return &fxevent.ZapLogger{
-				Logger: log.WithOptions(zap.IncreaseLevel(logLevel)),
-			}
+			return &fxevent.ZapLogger{Logger: log}
 		}),
 		NewLoggerModule(),
 		fx.Provide(
@@ -91,6 +91,10 @@ func createApp(opts *CrawlOptions) *fx.App {
 					MaxDepth: opts.depth,
 					Debug:    opts.debug,
 				}
+			},
+			func() logger.Logger {
+				l, _ := logger.New(logConfig)
+				return l
 			},
 		),
 		metrics.Module,
@@ -103,25 +107,25 @@ func createApp(opts *CrawlOptions) *fx.App {
 			shutdowner fx.Shutdowner,
 			crawler crawlers.Crawler,
 			storageAdapter *storage.StorageAdapter,
-			logger *zap.Logger,
+			logger logger.Logger,
 		) error {
 			lifecycle.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
-					logger.Info("starting crawler", zap.String("url", opts.url), zap.Int("depth", opts.depth))
+					logger.Info(ctx, "starting crawler", logger.NewField("url", opts.url), logger.NewField("depth", opts.depth))
 
 					go func() {
 						if err := crawler.CrawlWithHandler(ctx, opts.url, opts.depth, storageAdapter.HandleCrawledPage); err != nil {
-							logger.Error("crawler failed", zap.Error(err))
+							logger.Error(ctx, "crawler failed", logger.NewField("error", err))
 						}
 
 						if err := shutdowner.Shutdown(); err != nil {
-							logger.Error("shutdown failed", zap.Error(err))
+							logger.Error(ctx, "shutdown failed", logger.NewField("error", err))
 						}
 					}()
 					return nil
 				},
 				OnStop: func(ctx context.Context) error {
-					logger.Info("stopping crawler")
+					logger.Info(ctx, "stopping crawler")
 					return nil
 				},
 			})

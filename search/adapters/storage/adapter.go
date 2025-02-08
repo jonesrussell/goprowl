@@ -7,7 +7,7 @@ import (
 
 	"github.com/jonesrussell/goprowl/search/crawlers"
 	"github.com/jonesrussell/goprowl/search/storage"
-	"github.com/jonesrussell/goprowl/search/storage/bleve"
+	"github.com/jonesrussell/goprowl/search/storage/bleve_storage"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 )
@@ -21,7 +21,7 @@ type StorageAdapter struct {
 // NewStorageAdapter creates a new storage adapter
 func NewStorageAdapter(logger *zap.Logger) (*StorageAdapter, error) {
 	storagePath := filepath.Join("data", "search.bleve")
-	storage, err := bleve.New(storagePath)
+	storage, err := bleve_storage.New(storagePath)
 	if err != nil {
 		return nil, err
 	}

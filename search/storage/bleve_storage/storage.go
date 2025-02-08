@@ -1,4 +1,4 @@
-package bleve
+package bleve_storage
 
 import (
 	"context"

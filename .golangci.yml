@@ -1,0 +1,16 @@
+linters:
+  enable:
+    - importas
+
+issues:
+  exclude-rules:
+    - path: "internal/logger"
+      text: "importing zap is allowed in the logger package only"
+      linters:
+        - importas
+
+# Specify the allowed imports for the logger package
+importas:
+  # Allow zap to be imported in the logger package
+  - path: "go.uber.org/zap"
+    package: "github.com/jonesrussell/goprowl/internal/logger"

@@ -3,7 +3,7 @@ package app
 import (
 	"github.com/jonesrussell/goprowl/search/engine"
 	"github.com/jonesrussell/goprowl/search/storage"
-	"github.com/jonesrussell/goprowl/search/storage/bleve"
+	"github.com/jonesrussell/goprowl/search/storage/bleve_storage"
 	"go.uber.org/fx"
 )
 
@@ -30,7 +30,7 @@ var StorageModule = fx.Options(
 	fx.Provide(
 		fx.Annotate(
 			func() (storage.StorageAdapter, error) {
-				return bleve.New("data/search.bleve")
+				return bleve_storage.New("data/search.bleve")
 			},
 			fx.As(new(storage.StorageAdapter)),
 		),

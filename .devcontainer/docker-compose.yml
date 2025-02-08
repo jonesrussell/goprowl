@@ -1,4 +1,5 @@
 services:
+
   app:
     build:
       context: .
@@ -28,9 +29,9 @@ services:
     image: prom/pushgateway:latest
     ports:
       - "9091:9091"
+    restart: unless-stopped
     networks:
       - goprowl
-    restart: unless-stopped
 
 networks:
   goprowl:

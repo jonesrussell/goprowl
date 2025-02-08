@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jonesrussell/goprowl/internal/app"
+	"github.com/jonesrussell/goprowl/internal/logger"
 	"github.com/jonesrussell/goprowl/metrics"
 	"github.com/jonesrussell/goprowl/search/engine"
 	"github.com/spf13/cobra"
@@ -51,23 +52,29 @@ Examples:
 }
 
 func runList(ctx context.Context, opts *ListOptions) error {
-	logLevel := zap.InfoLevel
+	var logConfig logger.Config
 	if opts.debug {
-		logLevel = zap.DebugLevel
+		logConfig = logger.NewDevelopmentConfig()
+	} else {
+		logConfig = logger.NewProductionConfig()
 	}
 
 	options := []fx.Option{
 		fx.WithLogger(func(log *zap.Logger) fxevent.Logger {
 			return &fxevent.ZapLogger{Logger: log}
 		}),
-		fx.Provide(func() (*zap.Logger, error) {
-			config := zap.NewProductionConfig()
-			config.Level = zap.NewAtomicLevelAt(logLevel)
-			return config.Build()
-		}),
+		fx.Provide(
+			func() logger.Logger {
+				l, _ := logger.New(logConfig)
+				return l
+			},
+			func() *ListOptions {
+				return opts
+			},
+		),
 		app.Module,
 		metrics.Module,
-		fx.Invoke(func(engine engine.SearchEngine, logger *zap.Logger, metrics *metrics.ComponentMetrics) error {
+		fx.Invoke(func(engine engine.SearchEngine, logger logger.Logger, metrics *metrics.ComponentMetrics) error {
 			startTime := time.Now()
 			defer func() {
 				metrics.ObserveHistogram(
@@ -76,7 +83,7 @@ func runList(ctx context.Context, opts *ListOptions) error {
 				)
 			}()
 
-			logger.Info("listing documents")
+			logger.Info(ctx, "listing documents")
 			docs, err := engine.List()
 			if err != nil {
 				metrics.IncCounter("list_documents_errors_total", 1)
@@ -92,7 +99,18 @@ func runList(ctx context.Context, opts *ListOptions) error {
 		options = append(options, fx.NopLogger)
 	}
 
-	return fx.New(options...).Start(ctx)
+	app := fx.New(options...)
+
+	startCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	if err := app.Start(startCtx); err != nil {
+		return fmt.Errorf("failed to start application: %w", err)
+	}
+
+	defer app.Stop(ctx)
+
+	return nil
 }
 
 func displayDocuments(docs []engine.Document, format string) error {

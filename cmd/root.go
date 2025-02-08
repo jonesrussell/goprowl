@@ -130,10 +130,3 @@ func Execute() error {
 	globalLogger.Info(context.Background(), "application completed successfully")
 	return nil
 }
-
-func main() {
-	if err := Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-}
